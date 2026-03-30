@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation';
 import { Upload, Send, FileSpreadsheet, RefreshCw, AlertCircle } from 'lucide-react';
 import { useUser } from '@/lib/user-context';
 import { invoicesApi, xlsxConfigsApi } from '@/lib/api';
-import { RodzajFaktury, RODZAJ_FAKTURY_LABELS } from '@/types';
+import { RodzajFaktury, RODZAJ_FAKTURY_LABELS, VatRateCode, VAT_RATE_CODE_LABELS } from '@/types';
 import Link from 'next/link';
 
 // ---------------------------------------------------------------------------
@@ -18,7 +18,7 @@ interface ItemFields {
   unit: string;
   quantity: string;
   netUnitPrice: string;
-  vatRate: string;
+  vatRateCode: VatRateCode;
 }
 
 interface ParsedFields {
@@ -29,9 +29,11 @@ interface ParsedFields {
   sellerName: string;
   sellerNip: string;
   sellerAddress: string;
+  sellerCountryCode: string;
   buyerName: string;
   buyerNip: string;
   buyerAddress: string;
+  buyerCountryCode: string;
   currency: string;
   items: ItemFields[];
 }
@@ -46,6 +48,15 @@ interface Annotations {
 type TopKey = keyof Omit<ParsedFields, 'items'>;
 type FieldErrors = Partial<Record<TopKey, string>> & {
   items?: Partial<Record<keyof ItemFields, string>>[];
+};
+
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
+const NUMERIC_RATE_MAP: Record<VatRateCode, number> = {
+  '23': 23, '22': 22, '8': 8, '7': 7, '5': 5, '4': 4, '3': 3,
+  '0 KR': 0, '0 WDT': 0, '0 EX': 0, 'zw': 0, 'oo': 0, 'np I': 0, 'np II': 0,
 };
 
 // ---------------------------------------------------------------------------
@@ -78,7 +89,6 @@ function validateFields(f: ParsedFields): FieldErrors {
   else if (!NIP_RE.test(f.sellerNip.replace(/[- ]/g, '')))
     e.sellerNip = 'NIP musi składać się z dokładnie 10 cyfr';
 
-  // FA(3): adres sprzedawcy wymagany (Podmiot1.Adres.AdresL1)
   if (!f.sellerAddress.trim())
     e.sellerAddress = 'Adres sprzedawcy jest wymagany w FA(3)';
 
@@ -103,9 +113,6 @@ function validateFields(f: ParsedFields): FieldErrors {
     const price = parseFloat(item.netUnitPrice.replace(',', '.'));
     if (!item.netUnitPrice.trim() || isNaN(price) || price <= 0)
       ie.netUnitPrice = 'Cena netto musi być liczbą większą od 0';
-    const vat = parseFloat(item.vatRate.replace(',', '.'));
-    if (!item.vatRate.trim() || isNaN(vat) || vat < 0 || vat > 100)
-      ie.vatRate = 'Stawka VAT: liczba od 0 do 100';
     return ie;
   });
 
@@ -125,16 +132,25 @@ function countErrors(e: FieldErrors): number {
 // Helpers
 // ---------------------------------------------------------------------------
 
+/** Próbuje dopasować numeryczną stawkę VAT z XLSX do kodu FA(3). */
+function guessVatRateCode(vatRateStr: string): VatRateCode {
+  const n = Math.round(parseFloat(vatRateStr.replace(',', '.')));
+  const map: Partial<Record<number, VatRateCode>> = {
+    23: '23', 22: '22', 8: '8', 7: '7', 5: '5', 4: '4', 3: '3', 0: '0 KR',
+  };
+  return map[n] ?? '23';
+}
+
 function emptyItem(): ItemFields {
-  return { name: '', unit: '', quantity: '', netUnitPrice: '', vatRate: '' };
+  return { name: '', unit: '', quantity: '', netUnitPrice: '', vatRateCode: '23' };
 }
 
 function emptyFields(): ParsedFields {
   return {
     invoiceNumber: '', issueDate: '', saleDate: '',
     rodzajFaktury: 'VAT',
-    sellerName: '', sellerNip: '', sellerAddress: '',
-    buyerName: '', buyerNip: '', buyerAddress: '',
+    sellerName: '', sellerNip: '', sellerAddress: '', sellerCountryCode: 'PL',
+    buyerName: '', buyerNip: '', buyerAddress: '', buyerCountryCode: 'PL',
     currency: 'PLN', items: [emptyItem()],
   };
 }
@@ -142,28 +158,34 @@ function emptyFields(): ParsedFields {
 /** Convert flat preview map { item1_name: ..., item2_name: ... } → ParsedFields */
 function mapToFields(raw: Record<string, string>): ParsedFields {
   const f = emptyFields();
-  f.invoiceNumber  = raw.invoiceNumber  ?? '';
-  f.issueDate      = raw.issueDate      ?? '';
-  f.saleDate       = raw.saleDate       ?? '';
-  f.rodzajFaktury  = raw.rodzajFaktury  ?? 'VAT';
-  f.sellerName     = raw.sellerName     ?? '';
-  f.sellerNip      = raw.sellerNip      ?? '';
-  f.sellerAddress  = raw.sellerAddress  ?? '';
-  f.buyerName      = raw.buyerName      ?? '';
-  f.buyerNip       = raw.buyerNip       ?? '';
-  f.buyerAddress   = raw.buyerAddress   ?? '';
-  f.currency       = raw.currency       ?? 'PLN';
+  f.invoiceNumber      = raw.invoiceNumber      ?? '';
+  f.issueDate          = raw.issueDate          ?? '';
+  f.saleDate           = raw.saleDate           ?? '';
+  f.rodzajFaktury      = raw.rodzajFaktury      ?? 'VAT';
+  f.sellerName         = raw.sellerName         ?? '';
+  f.sellerNip          = raw.sellerNip          ?? '';
+  f.sellerAddress      = raw.sellerAddress      ?? '';
+  f.sellerCountryCode  = raw.sellerCountryCode  ?? 'PL';
+  f.buyerName          = raw.buyerName          ?? '';
+  f.buyerNip           = raw.buyerNip           ?? '';
+  f.buyerAddress       = raw.buyerAddress       ?? '';
+  f.buyerCountryCode   = raw.buyerCountryCode   ?? 'PL';
+  f.currency           = raw.currency           ?? 'PLN';
 
   const items: ItemFields[] = [];
   for (let i = 1; i <= 50; i++) {
     const name = raw[`item${i}_name`];
     if (!name) break;
+    const rawCode = raw[`item${i}_vatRateCode`];
+    const vatRateCode: VatRateCode = rawCode
+      ? (rawCode as VatRateCode)
+      : guessVatRateCode(raw[`item${i}_vatRate`] ?? '');
     items.push({
       name,
       unit:         raw[`item${i}_unit`]         ?? '',
       quantity:     raw[`item${i}_quantity`]     ?? '',
       netUnitPrice: raw[`item${i}_netUnitPrice`] ?? '',
-      vatRate:      raw[`item${i}_vatRate`]      ?? '',
+      vatRateCode,
     });
   }
   f.items = items.length > 0 ? items : [emptyItem()];
@@ -173,35 +195,27 @@ function mapToFields(raw: Record<string, string>): ParsedFields {
 /** Build the JSON payload expected by POST /api/invoices */
 function toCreateRequest(f: ParsedFields, annotations: Annotations) {
   return {
-    invoiceNumber: f.invoiceNumber.trim(),
-    issueDate:     f.issueDate.trim(),
-    saleDate:      f.saleDate.trim() || null,
-    rodzajFaktury: f.rodzajFaktury || 'VAT',
-    sellerName:    f.sellerName.trim(),
-    sellerNip:     f.sellerNip.replace(/[- ]/g, ''),
-    sellerAddress: f.sellerAddress.trim(),  // wymagany w FA(3)
-    // TODO: Brak pól sellerCountryCode i buyerCountryCode w tym formularzu.
-    //       Są one wymagane przez FA(3) (Podmiot1.Adres.KodKraju / Podmiot2.Adres.KodKraju).
-    //       Backend domyślnie ustawia "PL", ale gdy nabywca jest zagraniczny (kod != PL),
-    //       użytkownik nie ma możliwości tego zmienić przez ścieżkę XLSX.
-    //       Dodać pola sellerCountryCode i buyerCountryCode do ParsedFields, mapToFields(),
-    //       formularza (FieldRow) i toCreateRequest().
-    buyerName:     f.buyerName.trim(),
-    buyerNip:      f.buyerNip.replace(/[- ]/g, ''),
-    buyerAddress:  f.buyerAddress.trim() || null,
-    currency:      f.currency.trim() || 'PLN',
+    invoiceNumber:      f.invoiceNumber.trim(),
+    issueDate:          f.issueDate.trim(),
+    saleDate:           f.saleDate.trim() || null,
+    rodzajFaktury:      f.rodzajFaktury || 'VAT',
+    sellerName:         f.sellerName.trim(),
+    sellerNip:          f.sellerNip.replace(/[- ]/g, ''),
+    sellerAddress:      f.sellerAddress.trim(),
+    sellerCountryCode:  f.sellerCountryCode.trim() || 'PL',
+    buyerName:          f.buyerName.trim(),
+    buyerNip:           f.buyerNip.replace(/[- ]/g, ''),
+    buyerAddress:       f.buyerAddress.trim() || null,
+    buyerCountryCode:   f.buyerCountryCode.trim() || 'PL',
+    currency:           f.currency.trim() || 'PLN',
     ...annotations,
     items: f.items.map(item => ({
-      name:         item.name.trim(),
-      unit:         item.unit.trim() || null,
-      quantity:     parseFloat(item.quantity.replace(',', '.')),
+      name:        item.name.trim(),
+      unit:        item.unit.trim() || null,
+      quantity:    parseFloat(item.quantity.replace(',', '.')),
       netUnitPrice: parseFloat(item.netUnitPrice.replace(',', '.')),
-      // TODO: vatRate jest wysyłany jako liczba (np. 23.0), ale nie wysyłamy vatRateCode.
-      //       Oznacza to, że kody specjalne takie jak "zw", "oo", "np I" nie mogą być
-      //       ustawione przez ścieżkę XLSX — backend zawsze obliczy VAT numerycznie.
-      //       Dodać pole vatRateCode do ItemFields, mapToFields() (z kluczy item1_vatRateCode)
-      //       i przesłać je tutaj obok vatRate.
-      vatRate:      parseFloat(item.vatRate.replace(',', '.')),
+      vatRate:     NUMERIC_RATE_MAP[item.vatRateCode],
+      vatRateCode: item.vatRateCode,
     })),
   };
 }
@@ -252,6 +266,7 @@ export default function XlsxUploadPage() {
   const router = useRouter();
   const { userId } = useUser();
   const fileRef = useRef<HTMLInputElement>(null);
+  const abortCtrlRef = useRef<AbortController | null>(null);
 
   const [file, setFile]         = useState<File | null>(null);
   const [configId, setConfigId] = useState('');
@@ -279,26 +294,32 @@ export default function XlsxUploadPage() {
     setErrors(validateFields(fields));
   }, [fields]);
 
-  // Fetch preview automatically when both inputs are ready
+  // Anuluj aktywne żądanie przy odmontowaniu komponentu
+  useEffect(() => {
+    return () => { abortCtrlRef.current?.abort(); };
+  }, []);
+
+  // Fetch preview — anuluje poprzednie żądanie gdy użytkownik zmieni plik lub konfigurację
   const fetchPreview = useCallback(async (f: File, cId: string) => {
     if (!f || !cId || !userId) return;
-    // TODO: Race condition — jeśli użytkownik szybko zmieni plik, a potem konfigurację,
-    //       dwa wywołania fetchPreview działają równolegle. Odpowiedź drugiego może nadpisać
-    //       wynik pierwszego jeśli serwer odpowie w odwrotnej kolejności.
-    //       Naprawić przez AbortController: trzymać ref do aktualnego controllera,
-    //       anulować poprzednie żądanie przed każdym nowym wywołaniem:
-    //         const abortCtrl = new AbortController();
-    //         abortCtrlRef.current?.abort();
-    //         abortCtrlRef.current = abortCtrl;
-    //       a następnie przekazać signal do axios: { signal: abortCtrl.signal }
+
+    abortCtrlRef.current?.abort();
+    const ctrl = new AbortController();
+    abortCtrlRef.current = ctrl;
+
     setLoadingPreview(true);
     setApiError('');
     try {
-      const raw = await invoicesApi.previewXlsx(userId, f, cId);
+      const raw = await invoicesApi.previewXlsx(userId, f, cId, ctrl.signal);
       setFields(mapToFields(raw));
-      setTouched(true);   // show validation state immediately after parse
+      setTouched(true);
     } catch (err: any) {
-      setApiError(err?.response?.data?.error ?? 'Błąd odczytu pliku');
+      if (err.code === 'ERR_CANCELED') return; // żądanie anulowane — ignoruj
+      setApiError(
+        err?.response?.data?.error ??
+        err?.message ??
+        'Błąd odczytu pliku'
+      );
     } finally {
       setLoadingPreview(false);
     }
@@ -348,6 +369,7 @@ export default function XlsxUploadPage() {
       setApiError(
         err?.response?.data?.error ??
         err?.response?.data?.message ??
+        err?.message ??
         'Błąd wysyłania faktury'
       );
     } finally {
@@ -572,6 +594,14 @@ export default function XlsxUploadPage() {
                 error={touched ? errors.sellerAddress : undefined}
                 onChange={v => setTop('sellerAddress', v)}
               />
+              <FieldRow
+                label="Kod kraju"
+                value={fields.sellerCountryCode}
+                error={touched ? errors.sellerCountryCode : undefined}
+                onChange={v => setTop('sellerCountryCode', v.toUpperCase())}
+                placeholder="PL"
+                mono
+              />
             </div>
           </div>
 
@@ -600,6 +630,14 @@ export default function XlsxUploadPage() {
                 value={fields.buyerAddress}
                 error={touched ? errors.buyerAddress : undefined}
                 onChange={v => setTop('buyerAddress', v)}
+              />
+              <FieldRow
+                label="Kod kraju"
+                value={fields.buyerCountryCode}
+                error={touched ? errors.buyerCountryCode : undefined}
+                onChange={v => setTop('buyerCountryCode', v.toUpperCase())}
+                placeholder="PL"
+                mono
               />
             </div>
           </div>
@@ -661,32 +699,51 @@ export default function XlsxUploadPage() {
                     </div>
                   </div>
 
-                  {/* Quantity + price + vat */}
+                  {/* Quantity + price + vatRateCode */}
                   <div className="grid grid-cols-3 gap-2">
-                    {(
-                      [
-                        { key: 'quantity',     label: 'Ilość *' },
-                        { key: 'netUnitPrice', label: 'Cena netto *' },
-                        { key: 'vatRate',      label: 'Stawka VAT % *' },
-                      ] as { key: keyof ItemFields; label: string }[]
-                    ).map(({ key, label }) => (
-                      <div key={key} className="space-y-0.5">
-                        <input
-                          className={[
-                            'input py-1 text-sm w-full font-mono',
-                            touched && ie[key] ? 'border-red-400 bg-red-50 focus:ring-red-200' : '',
-                          ].join(' ')}
-                          placeholder={label}
-                          value={item[key]}
-                          onChange={e => setItemField(idx, key, e.target.value)}
-                        />
-                        {touched && ie[key] && (
-                          <p className="text-xs text-red-500 flex items-center gap-1">
-                            <AlertCircle size={11} className="shrink-0" />{ie[key]}
-                          </p>
-                        )}
-                      </div>
-                    ))}
+                    <div className="space-y-0.5">
+                      <input
+                        className={[
+                          'input py-1 text-sm w-full font-mono',
+                          touched && ie.quantity ? 'border-red-400 bg-red-50 focus:ring-red-200' : '',
+                        ].join(' ')}
+                        placeholder="Ilość *"
+                        value={item.quantity}
+                        onChange={e => setItemField(idx, 'quantity', e.target.value)}
+                      />
+                      {touched && ie.quantity && (
+                        <p className="text-xs text-red-500 flex items-center gap-1">
+                          <AlertCircle size={11} className="shrink-0" />{ie.quantity}
+                        </p>
+                      )}
+                    </div>
+                    <div className="space-y-0.5">
+                      <input
+                        className={[
+                          'input py-1 text-sm w-full font-mono',
+                          touched && ie.netUnitPrice ? 'border-red-400 bg-red-50 focus:ring-red-200' : '',
+                        ].join(' ')}
+                        placeholder="Cena netto *"
+                        value={item.netUnitPrice}
+                        onChange={e => setItemField(idx, 'netUnitPrice', e.target.value)}
+                      />
+                      {touched && ie.netUnitPrice && (
+                        <p className="text-xs text-red-500 flex items-center gap-1">
+                          <AlertCircle size={11} className="shrink-0" />{ie.netUnitPrice}
+                        </p>
+                      )}
+                    </div>
+                    <div>
+                      <select
+                        className="input py-1 text-sm w-full"
+                        value={item.vatRateCode}
+                        onChange={e => setItemField(idx, 'vatRateCode', e.target.value)}
+                      >
+                        {(Object.keys(VAT_RATE_CODE_LABELS) as VatRateCode[]).map(k => (
+                          <option key={k} value={k}>{VAT_RATE_CODE_LABELS[k]}</option>
+                        ))}
+                      </select>
+                    </div>
                   </div>
                 </div>
               );
