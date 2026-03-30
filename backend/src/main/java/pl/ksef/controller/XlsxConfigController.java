@@ -63,10 +63,19 @@ public class XlsxConfigController {
      */
     @PostMapping("/test-cell")
     public ResponseEntity<Map<String, String>> testCell(
-            @RequestHeader("X-User-Id") UUID userId,
+            // TODO: Nagłówek X-User-Id jest oznaczony required=false — endpoint dopuszcza
+            //       żądania bez autentykacji, a dopiero potem ręcznie sprawdza null.
+            //       Zmienić na required=true (spójnie z pozostałymi endpointami)
+            //       lub obsłużyć przez Spring Security (docelowo JWT).
+            // TODO: Brak walidacji formatu cellRef — użytkownik może podać dowolny ciąg
+            //       (np. "DROP TABLE" lub bardzo długi string). Dodać regex: /^[A-Z]{1,3}\d{1,7}$/
+            @RequestHeader(value = "X-User-Id", required = false) UUID userId,
             @RequestParam("file") MultipartFile file,
             @RequestParam("cellRef") String cellRef,
             @RequestParam(value = "sheetIndex", defaultValue = "0") int sheetIndex) throws Exception {
+        if (userId == null) {
+            return ResponseEntity.status(401).body(Map.of("error", "Brak identyfikatora użytkownika (X-User-Id)"));
+        }
         String value = parserService.readCell(file, cellRef, sheetIndex);
         return ResponseEntity.ok(Map.of("cellRef", cellRef, "value", value != null ? value : ""));
     }

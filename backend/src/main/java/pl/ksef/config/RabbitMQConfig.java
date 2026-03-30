@@ -28,11 +28,21 @@ public class RabbitMQConfig {
 
     @Bean
     public Queue invoiceSendDlq() {
+        // TODO: DLQ istnieje w konfiguracji, ale NIE MA konsumenta (@RabbitListener) który ją obsługuje.
+        //       Wiadomości które trafiły do DLQ (po błędzie w InvoiceQueueConsumer) są tam porzucane.
+        //       Należy dodać InvoiceDlqConsumer który:
+        //       - Loguje wiadomość z pełnym stacktrace jako CRITICAL w systemie monitoringu (np. Sentry).
+        //       - Ustawia fakturze status FAILED z komunikatem "Przekroczono limit prób wysyłki".
+        //       - Opcjonalnie: wysyła powiadomienie email/Slack do administratora.
         return QueueBuilder.durable(INVOICE_SEND_DLQ).build();
     }
 
     @Bean
     public Queue invoiceResultQueue() {
+        // TODO: invoice.result.queue jest zadeklarowana, ale nie ma ani producenta ani konsumenta.
+        //       Jeśli nie jest używana, usunąć aby nie zaśmiecać konfiguracji RabbitMQ.
+        //       Jeśli planowano jej użycie (np. do asynchronicznych wyników wysyłki),
+        //       dodać odpowiedni publisher i consumer.
         return QueueBuilder.durable(INVOICE_RESULT_QUEUE).build();
     }
 

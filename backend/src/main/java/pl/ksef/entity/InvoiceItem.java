@@ -44,4 +44,9 @@ public class InvoiceItem {
 
     @Column(nullable = false)
     private Integer position = 1;
+
+    /** FA(3) VAT rate code (TStawkaPodatku). Overrides numeric vatRate in XML if set.
+     *  Allowed: "23","22","8","7","5","4","3","0 KR","0 WDT","0 EX","zw","oo","np I","np II" */
+    @Column(name = "vat_rate_code")
+    private String vatRateCode;
 }

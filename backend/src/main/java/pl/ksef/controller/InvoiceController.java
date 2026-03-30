@@ -13,6 +13,12 @@ import pl.ksef.service.XlsxParserService;
 
 import java.util.UUID;
 
+// TODO: Brak mechanizmu autentykacji i autoryzacji.
+//       Nagłówek X-User-Id jest przyjmowany bez weryfikacji — każdy klient może podać dowolny UUID
+//       i działać w kontekście innego użytkownika. Przed wdrożeniem produkcyjnym należy:
+//       1. Dodać Spring Security z JWT (lub session cookies).
+//       2. Usunąć X-User-Id z nagłówka — userId pobierać z tokenu JWT (Principal / SecurityContext).
+//       3. Dodać @PreAuthorize lub filter weryfikujący, że userId z tokenu == userId w żądaniu.
 @RestController
 @RequestMapping("/api/invoices")
 @RequiredArgsConstructor
@@ -65,6 +71,10 @@ public class InvoiceController {
         req.setInvoiceNumber(req.getInvoiceNumber()); // already set from xlsx
         var invoice = invoiceService.createAndQueue(userId, req);
         var resp = invoiceService.toResponse(invoice);
+        // TODO: Source jest nadpisywane po zapisie do bazy — encja w DB zawsze ma source=FORM
+        //       (wartość domyślna z buildInvoice), a tylko odpowiedź HTTP ma source=XLSX.
+        //       Należy przekazać InvoiceSource jako parametr do InvoiceService.createAndQueue()
+        //       lub ustawić go w buildInvoice na podstawie pola w CreateRequest.
         resp.setSource(pl.ksef.entity.Invoice.InvoiceSource.XLSX);
         return ResponseEntity.ok(resp);
     }

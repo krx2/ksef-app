@@ -9,6 +9,11 @@ public class WebConfig implements WebMvcConfigurer {
 
     @Override
     public void addCorsMappings(CorsRegistry registry) {
+        // TODO: allowedOrigins jest hardcoded na localhost:3000 (środowisko deweloperskie).
+        //       W produkcji spowoduje to odrzucenie wszystkich żądań z właściwej domeny.
+        //       Przenieść origin do zmiennej środowiskowej (np. CORS_ALLOWED_ORIGINS)
+        //       i wczytać przez @Value("${cors.allowed-origins:http://localhost:3000}").
+        //       Przykład w application.yml: cors.allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000}
         registry.addMapping("/api/**")
                 .allowedOrigins("http://localhost:3000")
                 .allowedMethods("GET", "POST", "PUT", "DELETE", "OPTIONS")

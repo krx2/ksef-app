@@ -28,10 +28,18 @@ public class InvoiceQueueConsumer {
     public void handleSendInvoice(InvoiceMessages.SendInvoiceMessage message) {
         log.info("Processing SendInvoiceMessage invoiceId={}", message.getInvoiceId());
 
-        Invoice invoice = invoiceRepository.findById(message.getInvoiceId())
-                .orElseThrow(() -> new RuntimeException("Invoice not found: " + message.getInvoiceId()));
+        Invoice invoice = invoiceRepository.findById(message.getInvoiceId()).orElse(null);
+        if (invoice == null) {
+            log.warn("Invoice {} not found — discarding stale queue message", message.getInvoiceId());
+            return;
+        }
 
         AppUser user = userRepository.findById(message.getUserId())
+                // TODO: Jeśli użytkownik zostanie usunięty po wstawieniu wiadomości do kolejki,
+                //       consumer rzuci RuntimeException → wiadomość trafi do DLQ, ale nie jest
+                //       przetwarzana ponownie ani logowana jako problem biznesowy.
+                //       Należy obsłużyć ten przypadek: oznaczyć fakturę statusem FAILED
+                //       z komunikatem "Użytkownik usunięty" i zakończyć bez rzucania wyjątku.
                 .orElseThrow(() -> new RuntimeException("User not found: " + message.getUserId()));
 
         invoice.setStatus(Invoice.InvoiceStatus.SENDING);
@@ -39,6 +47,11 @@ public class InvoiceQueueConsumer {
 
         String sessionToken = null;
         try {
+            // TODO: Przed uwierzytelnieniem sprawdzić, czy user.getKsefToken() nie jest null/blank.
+            //       Brak tokenu powinien od razu ustawić status FAILED z czytelnym komunikatem
+            //       "Brak tokenu KSeF — skonfiguruj token w ustawieniach konta",
+            //       bez próby wywołania API (która i tak skończy się błędem).
+
             // 1. Auth
             String challenge = ksefApiClient.getAuthorisationChallenge(user.getNip());
             sessionToken = ksefApiClient.initSession(user.getNip(), user.getKsefToken(), challenge);
@@ -96,7 +109,16 @@ public class InvoiceQueueConsumer {
             if (result != null && result.getInvoiceHeaderList() != null) {
                 log.info("Fetched {} invoices from KSeF for user {}",
                         result.getNumberOfElements(), user.getId());
-                // TODO: persist received invoices (parse XML from KSeF)
+                // TODO: Zapisać pobrane faktury do bazy danych jako Invoice z direction=RECEIVED.
+                //       Dla każdej pozycji result.getInvoiceHeaderList() należy:
+                //       1. Sprawdzić czy faktura o danym ksefReferenceNumber już istnieje
+                //          (invoiceRepository.findByKsefNumber) — uniknąć duplikatów przy ponownym pobraniu.
+                //       2. Pobrać pełne dane faktury z KSeF (GET /api/online/Invoice/Get/{ksefRef})
+                //          — aktualnie KsefApiClient nie ma tej metody, trzeba ją dodać.
+                //       3. Sparsować XML FA(3) → wypełnić encję Invoice (sprzedawca, nabywca, pozycje).
+                //          Warto rozważyć użycie JAXB lub XPath zamiast ręcznego parsowania.
+                //       4. Zapisać z status=RECEIVED_FROM_KSEF i source=KSEF (dodać enum).
+                //       5. Uruchomić ten mechanizm cyklicznie — patrz TODO w @Scheduled poniżej.
             }
         } catch (Exception e) {
             log.error("Failed to fetch invoices for user {}: {}", message.getUserId(), e.getMessage(), e);
@@ -123,6 +145,23 @@ public class InvoiceQueueConsumer {
                 log.warn("Poll attempt {} failed: {}", attempt + 1, e.getMessage());
             }
         }
+        // TODO: Gdy wszystkie 5 prób się nie powiedzie, metoda zwraca null.
+        //       Faktura trafia do bazy ze status=SENT, ale ksefNumber=null — stan niespójny.
+        //       Należy wprowadzić jeden z dwóch mechanizmów uzupełnienia numeru:
+        //       A) Status pośredni SENT_PENDING_KSEF_NUMBER + zadanie @Scheduled (np. co 1 min)
+        //          które przeszuka invoiceRepository.findByStatusAndKsefNumberIsNull(SENT)
+        //          i ponowi polling dla każdej takiej faktury (nowa sesja KSeF per faktura).
+        //       B) Webhook / callback jeśli KSeF go oferuje w docelowym środowisku.
+        //       Bez tego mechanizmu numer KSeF nigdy nie zostanie uzupełniony po timeout'ie.
         return null; // ksefNumber may arrive asynchronously
     }
+
+    // TODO: Dodać metodę @Scheduled(fixedDelay = 3_600_000) (np. co godzinę) lub
+    //       @Scheduled(cron = "0 0 6 * * *") (codziennie o 6:00) która dla każdego
+    //       użytkownika z ustawionym ksefToken:
+    //       1. Wyznacza zakres dat (np. ostatnie 24 h lub od ostatniego pobrania).
+    //       2. Publikuje FetchInvoicesMessage do invoice.fetch.queue.
+    //       Aktualnie invoice.fetch.queue nigdy nie dostaje wiadomości — handleFetchInvoices()
+    //       jest konsumentem bez producenta. Klasa musi być oznaczona @EnableScheduling
+    //       lub użyć istniejącego @EnableScheduling z KsefApplication.java.
 }

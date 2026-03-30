@@ -63,7 +63,14 @@
             <artifactId>flyway-database-postgresql</artifactId>
         </dependency>
 
-        <!-- Apache POI for XLSX -->
+        <!-- Apache POI for XLS (BIFF8 / legacy) -->
+        <dependency>
+            <groupId>org.apache.poi</groupId>
+            <artifactId>poi</artifactId>
+            <version>5.3.0</version>
+        </dependency>
+
+        <!-- Apache POI for XLSX (OOXML) -->
         <dependency>
             <groupId>org.apache.poi</groupId>
             <artifactId>poi-ooxml</artifactId>

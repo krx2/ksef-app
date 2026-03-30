@@ -21,6 +21,9 @@ public class UserController {
 
     @GetMapping("/{id}")
     public ResponseEntity<UserResponse> get(@PathVariable UUID id) {
+        // TODO: Brak autoryzacji — każdy może pobrać dane dowolnego użytkownika podając jego UUID.
+        //       Po wprowadzeniu autentykacji (Spring Security + JWT) dodać weryfikację, że
+        //       wywołujący żąda własnych danych: wymagać nagłówka X-User-Id == {id} lub roli ADMIN.
         return userRepository.findById(id)
                 .map(UserResponse::from)
                 .map(ResponseEntity::ok)
@@ -29,6 +32,15 @@ public class UserController {
 
     @PostMapping
     public ResponseEntity<UserResponse> create(@Valid @RequestBody CreateUserRequest req) {
+        // TODO: Brak sprawdzenia unikalności emaila przed zapisem.
+        //       Kolumna users.email ma constraint UNIQUE w bazie, więc duplikat wywoła
+        //       DataIntegrityViolationException (HTTP 500), a nie czytelny błąd walidacji.
+        //       Należy dodać: if (userRepository.existsByEmail(req.getEmail())) throw new IllegalArgumentException(...)
+        //       oraz metodę existsByEmail w UserRepository.
+
+        // TODO: Token KSeF jest przechowywany w bazie jako czysty tekst (plaintext).
+        //       W środowisku produkcyjnym należy zaszyfrować go przed zapisem
+        //       (np. JPA AttributeConverter z AES-256 lub integracja z HashiCorp Vault / AWS KMS).
         AppUser user = AppUser.builder()
                 .email(req.getEmail())
                 .nip(req.getNip())
@@ -42,6 +54,10 @@ public class UserController {
     public ResponseEntity<Void> updateToken(
             @PathVariable UUID id,
             @RequestBody UpdateTokenRequest req) {
+        // TODO: Gdy użytkownik o danym {id} nie istnieje, metoda zwraca 204 No Content zamiast 404.
+        //       ifPresent() cicho ignoruje nieistniejący zasób. Zmienić na findById(...).orElseThrow().
+        // TODO: Brak autoryzacji — każdy może zmienić token dowolnego użytkownika podając jego UUID.
+        //       Po wprowadzeniu JWT dodać weryfikację, że X-User-Id == {id}.
         userRepository.findById(id).ifPresent(u -> {
             u.setKsefToken(req.getKsefToken());
             userRepository.save(u);

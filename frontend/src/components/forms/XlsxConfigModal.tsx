@@ -49,14 +49,19 @@ export default function XlsxConfigModal({ config, onClose, onSaved }: Props) {
   const testCell = async (fieldKey: string) => {
     const mapping = mappings[fieldKey];
     if (!previewFile || mapping.type !== 'CELL' || !mapping.cellRef) return;
+    if (!userId) {
+      setError('Nie można przetestować komórki — użytkownik nie jest zalogowany.');
+      return;
+    }
     setTestingField(fieldKey);
     try {
       const result = await xlsxConfigsApi.testCell(
         userId, previewFile, mapping.cellRef, mapping.sheetIndex ?? 0
       );
       setTestResults(prev => ({ ...prev, [fieldKey]: result.value }));
-    } catch {
-      setTestResults(prev => ({ ...prev, [fieldKey]: '⚠ błąd odczytu' }));
+    } catch (err: any) {
+      const msg = err?.response?.data?.error ?? 'błąd odczytu';
+      setTestResults(prev => ({ ...prev, [fieldKey]: '⚠ ' + msg }));
     } finally {
       setTestingField(null);
     }
@@ -213,7 +218,7 @@ export default function XlsxConfigModal({ config, onClose, onSaved }: Props) {
                             <button
                               type="button"
                               className="btn-secondary py-1 text-xs w-full"
-                              disabled={!previewFile || !mapping.cellRef || testingField === field.key}
+                              disabled={!previewFile || !mapping.cellRef || testingField === field.key || !userId}
                               onClick={() => testCell(field.key)}
                             >
                               <TestTube size={11} />

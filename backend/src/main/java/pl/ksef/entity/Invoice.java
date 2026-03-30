@@ -83,14 +83,51 @@ public class Invoice {
     @Column(name = "error_message")
     private String errorMessage;
 
+    @Builder.Default
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private InvoiceSource source = InvoiceSource.FORM;
+
+    // FA(3) fields
+    @Column(name = "rodzaj_faktury", nullable = false)
+    private String rodzajFaktury = "VAT";
+
+    @Column(name = "seller_country_code", nullable = false)
+    private String sellerCountryCode = "PL";
+
+    @Column(name = "buyer_country_code", nullable = false)
+    private String buyerCountryCode = "PL";
+
+    @Column(name = "metoda_kasowa", nullable = false)
+    private boolean metodaKasowa = false;
+
+    @Column(name = "samofakturowanie", nullable = false)
+    private boolean samofakturowanie = false;
+
+    @Column(name = "odwrotne_obciazenie", nullable = false)
+    private boolean odwrotneObciazenie = false;
+
+    @Column(name = "mechanizm_podzielonej_platnosci", nullable = false)
+    private boolean mechanizmPodzielonejPlatnosci = false;
 
     @OneToMany(mappedBy = "invoice", cascade = CascadeType.ALL, orphanRemoval = true)
     @OrderBy("position ASC")
     @Builder.Default
     private List<InvoiceItem> items = new ArrayList<>();
+
+    @PrePersist
+    void prePersist() {
+        if (source         == null) source         = InvoiceSource.FORM;
+        if (status         == null) status         = InvoiceStatus.DRAFT;
+        if (direction      == null) direction      = InvoiceDirection.ISSUED;
+        if (currency       == null) currency       = "PLN";
+        if (rodzajFaktury  == null) rodzajFaktury  = "VAT";
+        if (sellerCountryCode == null) sellerCountryCode = "PL";
+        if (buyerCountryCode  == null) buyerCountryCode  = "PL";
+        if (netAmount      == null) netAmount      = BigDecimal.ZERO;
+        if (vatAmount      == null) vatAmount      = BigDecimal.ZERO;
+        if (grossAmount    == null) grossAmount    = BigDecimal.ZERO;
+    }
 
     @CreationTimestamp
     @Column(name = "created_at", updatable = false)

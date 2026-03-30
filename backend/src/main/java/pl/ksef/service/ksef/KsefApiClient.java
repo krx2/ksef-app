@@ -41,7 +41,10 @@ public class KsefApiClient {
                 .toEntity(String.class);
 
         log.debug("AuthorisationChallenge response: {}", response.getBody());
-        // Parse timestamp from JSON — minimal parsing for simplicity
+        // TODO: Parsowanie JSON jest ręczne (indexOf + substring) — kruche i podatne na błędy
+        //       przy zmianie formatu odpowiedzi KSeF. Należy zastąpić deserializacją Jacksona
+        //       przez zmapowanie na KsefDto.AuthChallengeResponse (dodać brakujące pole "challenge"
+        //       lub "timestamp" zależnie od aktualnej wersji API KSeF — sprawdzić dokumentację).
         String raw = response.getBody();
         if (raw == null) throw new KsefException("Empty challenge response");
         // extract "timestamp":"2024-01-01T00:00:00.000Z"
@@ -132,6 +135,11 @@ public class KsefApiClient {
     public KsefDto.QueryInvoiceResponse queryReceivedInvoices(String sessionToken,
                                                                String dateFrom,
                                                                String dateTo) {
+        // TODO: Parametr subjectType="subject3" oznacza faktury wystawione NA nasz NIP
+        //       (nabywca = my). Sprawdzić czy to prawidłowe dla odebranych faktur
+        //       w aktualnej wersji API KSeF — dokumentacja rozróżnia subject1/subject2/subject3.
+        //       Daty dateFrom/dateTo muszą być w formacie ISO-8601 z timezone (np. "2024-01-01T00:00:00Z").
+        //       Aktualnie wywołujący (handleFetchInvoices) przekazuje je jako String bez walidacji formatu.
         var body = """
                 {"queryCriteria":{"subjectType":"subject3","type":"incremental",
                  "acquisitionTimestampThresholdFrom":"%s","acquisitionTimestampThresholdTo":"%s"}}
@@ -166,8 +174,17 @@ public class KsefApiClient {
     // ---- helpers ----
 
     private String buildAuthorisationToken(String ksefToken, String challenge) {
-        // Per KSeF spec: SHA-256 hash of (token bytes XOR'd with challenge bytes), then Base64
-        // Simplified for test env: Base64(token|challenge)
+        // TODO: Implementacja tokenu jest uproszczona i NIE jest zgodna ze specyfikacją KSeF.
+        //       Specyfikacja MF (authByToken) wymaga:
+        //         1. Zdekodować token (Base64 → bajty).
+        //         2. Pobrać bajty challenge (UTF-8).
+        //         3. XOR bajt-po-bajcie: dla i < min(len(token), len(challenge)).
+        //         4. SHA-256 wyniku XOR.
+        //         5. Zakodować Base64 (Standard, bez padding lub z — sprawdzić docs).
+        //       Obecna implementacja Base64(token|challenge) działa WYŁĄCZNIE z mockiem
+        //       testowym który nie weryfikuje podpisu. Na środowisku produkcyjnym
+        //       lub pełnym środowisku testowym MF zwróci HTTP 401.
+        //       Referencja: https://www.podatki.gov.pl/ksef/dokumentacja-techniczna-ksef/
         String combined = ksefToken + "|" + challenge;
         return Base64.getEncoder().encodeToString(combined.getBytes(StandardCharsets.UTF_8));
     }

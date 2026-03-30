@@ -8,6 +8,7 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import pl.ksef.service.ksef.KsefException;
 
+import java.io.IOException;
 import java.time.LocalDateTime;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -16,8 +17,25 @@ import java.util.stream.Collectors;
 @Slf4j
 public class GlobalExceptionHandler {
 
+    @ExceptionHandler(IllegalArgumentException.class)
+    public ResponseEntity<Map<String, Object>> handleIllegalArgument(IllegalArgumentException e) {
+        log.warn("Invalid argument: {}", e.getMessage());
+        return error(HttpStatus.BAD_REQUEST, e.getMessage());
+    }
+
+    @ExceptionHandler(IOException.class)
+    public ResponseEntity<Map<String, Object>> handleIo(IOException e) {
+        log.error("IO error: {}", e.getMessage());
+        return error(HttpStatus.BAD_REQUEST, e.getMessage());
+    }
+
     @ExceptionHandler(RuntimeException.class)
     public ResponseEntity<Map<String, Object>> handleRuntime(RuntimeException e) {
+        // TODO: Wszystkie RuntimeException (włącznie z "Invoice not found", "User not found")
+        //       zwracają HTTP 400, co jest semantycznie błędne — zasoby nieznalezione to HTTP 404.
+        //       Należy stworzyć dedykowaną klasę ResourceNotFoundException extends RuntimeException
+        //       i obsłużyć ją osobnym handlerem zwracającym HttpStatus.NOT_FOUND.
+        //       Przykład: invoiceRepository.findById(id).orElseThrow(ResourceNotFoundException::new)
         log.error("Runtime error: {}", e.getMessage());
         return error(HttpStatus.BAD_REQUEST, e.getMessage());
     }
@@ -37,6 +55,10 @@ public class GlobalExceptionHandler {
     }
 
     private ResponseEntity<Map<String, Object>> error(HttpStatus status, String message) {
+        // TODO: Odpowiedź błędu nie zawiera pola "path" (ścieżka URL żądania).
+        //       Frontend nie może wyświetlić kontekstu błędu, a logi są trudniejsze do diagnozowania.
+        //       Aby dodać path, wstrzyknąć HttpServletRequest do handlera i użyć request.getRequestURI().
+        //       Wzorzec: Map.of("path", request.getRequestURI(), "timestamp", ..., "status", ..., "error", ...)
         return ResponseEntity.status(status).body(Map.of(
                 "timestamp", LocalDateTime.now().toString(),
                 "status", status.value(),
