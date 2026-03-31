@@ -404,6 +404,25 @@ public class KsefDto {
     }
 
     // =====================================================================
+    // Treść faktury — GET /invoices/{ksefNumber}/content
+    // =====================================================================
+
+    /**
+     * Odpowiedź GET /invoices/{ksefNumber}/content.
+     * Pole invoiceContent zawiera surowy XML FA(3) w kodowaniu UTF-8.
+     * Jeśli API zwraca Base64, treść należy zdekodować przed parsowaniem.
+     */
+    @Data
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public static class InvoiceContentResponse {
+        @JsonProperty("invoiceContent")
+        private String invoiceContent;
+
+        @JsonProperty("ksefNumber")
+        private String ksefNumber;
+    }
+
+    // =====================================================================
     // Shared types
     // =====================================================================
 

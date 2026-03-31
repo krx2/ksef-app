@@ -5,6 +5,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import pl.ksef.dto.XlsxConfigDto;
 import pl.ksef.entity.XlsxConfiguration;
+import pl.ksef.exception.ResourceNotFoundException;
 import pl.ksef.repository.XlsxConfigurationRepository;
 
 import java.util.List;
@@ -25,7 +26,7 @@ public class XlsxConfigService {
         return repository.findById(id)
                 .filter(c -> c.getUserId().equals(userId))
                 .map(this::toResponse)
-                .orElseThrow(() -> new RuntimeException("Config not found: " + id));
+                .orElseThrow(() -> new ResourceNotFoundException("Config not found: " + id));
     }
 
     @Transactional
@@ -43,7 +44,7 @@ public class XlsxConfigService {
     public XlsxConfigDto.Response update(UUID id, UUID userId, XlsxConfigDto.SaveRequest req) {
         XlsxConfiguration config = repository.findById(id)
                 .filter(c -> c.getUserId().equals(userId))
-                .orElseThrow(() -> new RuntimeException("Config not found: " + id));
+                .orElseThrow(() -> new ResourceNotFoundException("Config not found: " + id));
         config.setName(req.getName());
         config.setDescription(req.getDescription());
         config.setFieldMappings(req.getFieldMappings());
@@ -54,7 +55,7 @@ public class XlsxConfigService {
     public void delete(UUID id, UUID userId) {
         XlsxConfiguration config = repository.findById(id)
                 .filter(c -> c.getUserId().equals(userId))
-                .orElseThrow(() -> new RuntimeException("Config not found: " + id));
+                .orElseThrow(() -> new ResourceNotFoundException("Config not found: " + id));
         repository.delete(config);
     }
 

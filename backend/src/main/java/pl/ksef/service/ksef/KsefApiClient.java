@@ -291,4 +291,24 @@ public class KsefApiClient {
                 resp.getInvoices() != null ? resp.getInvoices().size() : 0, resp.isHasMore());
         return resp;
     }
+
+    /**
+     * GET /invoices/{ksefNumber}/content — pobiera surowy XML faktury FA(3).
+     *
+     * @param accessToken JWT access token
+     * @param ksefNumber  numer KSeF faktury (format: NIP-data-hash)
+     * @return XML faktury FA(3) jako string UTF-8
+     */
+    public String getInvoiceContent(String accessToken, String ksefNumber) {
+        String content = restClient.get()
+                .uri("/invoices/{ksefNumber}/content", ksefNumber)
+                .header("Authorization", "Bearer " + accessToken)
+                .retrieve()
+                .body(String.class);
+        if (content == null || content.isBlank()) {
+            throw new KsefException("Pusta odpowiedź z /invoices/" + ksefNumber + "/content");
+        }
+        log.debug("Pobrano treść faktury ksefNumber={}, rozmiar={} B", ksefNumber, content.length());
+        return content;
+    }
 }

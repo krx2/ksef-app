@@ -139,5 +139,5 @@ public class Invoice {
 
     public enum InvoiceDirection { ISSUED, RECEIVED }
     public enum InvoiceStatus    { DRAFT, QUEUED, SENDING, SENT, FAILED, RECEIVED_FROM_KSEF }
-    public enum InvoiceSource    { FORM, XLSX }
+    public enum InvoiceSource    { FORM, XLSX, KSEF }
 }

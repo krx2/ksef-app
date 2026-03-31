@@ -3,6 +3,7 @@ package pl.ksef.service.queue;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import pl.ksef.config.RabbitMQConfig;
 import pl.ksef.dto.KsefDto;
@@ -11,13 +12,16 @@ import pl.ksef.entity.Invoice;
 import pl.ksef.repository.InvoiceRepository;
 import pl.ksef.repository.UserRepository;
 import pl.ksef.service.ksef.EncryptedInvoiceData;
-import pl.ksef.service.ksef.Fa2XmlBuilder;
+import pl.ksef.service.ksef.Fa3XmlBuilder;
+import pl.ksef.service.ksef.Fa3XmlParser;
 import pl.ksef.service.ksef.KsefApiClient;
 import pl.ksef.service.ksef.KsefEncryptionService;
 import pl.ksef.service.ksef.KsefException;
 import pl.ksef.service.ksef.KsefTokenManager;
 
 import java.nio.charset.StandardCharsets;
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
 
 @Service
 @Slf4j
@@ -32,7 +36,9 @@ public class InvoiceQueueConsumer {
     private final KsefApiClient ksefApiClient;
     private final KsefEncryptionService encryptionService;
     private final KsefTokenManager ksefTokenManager;
-    private final Fa2XmlBuilder fa2XmlBuilder;
+    private final Fa3XmlBuilder fa3XmlBuilder;
+    private final InvoiceQueuePublisher queuePublisher;
+    private final Fa3XmlParser fa3XmlParser;
 
     @RabbitListener(queues = RabbitMQConfig.INVOICE_SEND_QUEUE,
                     containerFactory = "rabbitListenerContainerFactory")
@@ -75,7 +81,7 @@ public class InvoiceQueueConsumer {
 
             // 2. Zbuduj XML FA(3) jeśli jeszcze nie ma w bazie
             if (invoice.getFa2Xml() == null) {
-                String xml = fa2XmlBuilder.build(invoice);
+                String xml = fa3XmlBuilder.build(invoice);
                 invoice.setFa2Xml(xml);
             }
 
@@ -151,20 +157,52 @@ public class InvoiceQueueConsumer {
 
             KsefDto.QueryMetadataResponse result = ksefApiClient.queryInvoices(accessToken, request);
 
-            if (result != null && result.getInvoices() != null) {
-                log.info("Fetched {} invoices from KSeF for user {}",
-                        result.getInvoices().size(), user.getId());
-                // TODO: Zapisać pobrane faktury do bazy danych jako Invoice z direction=RECEIVED.
-                //       Dla każdej pozycji result.getInvoices() należy:
-                //       1. Sprawdzić czy faktura o danym ksefNumber już istnieje
-                //          (invoiceRepository.findByKsefNumber) — uniknąć duplikatów przy ponownym pobraniu.
-                //       2. Pobrać pełne dane faktury z KSeF (GET /invoices/{ksefNumber}/content)
-                //          — aktualnie KsefApiClient nie ma tej metody, trzeba ją dodać.
-                //       3. Sparsować XML FA(3) → wypełnić encję Invoice (sprzedawca, nabywca, pozycje).
-                //          Warto rozważyć użycie JAXB lub XPath zamiast ręcznego parsowania.
-                //       4. Zapisać z status=RECEIVED_FROM_KSEF i source=KSEF (dodać enum).
-                //       5. Uruchomić ten mechanizm cyklicznie — patrz TODO @Scheduled poniżej.
+            if (result == null || result.getInvoices() == null || result.getInvoices().isEmpty()) {
+                log.info("Brak faktur do pobrania dla użytkownika {}", user.getId());
+                return;
             }
+
+            log.info("Znaleziono {} faktur w KSeF dla użytkownika {}",
+                    result.getInvoices().size(), user.getId());
+
+            int saved = 0;
+            int skipped = 0;
+            int errors = 0;
+
+            for (KsefDto.QueryMetadataResponse.InvoiceMetadata meta : result.getInvoices()) {
+                // 1. Sprawdź duplikat po numerze KSeF
+                if (invoiceRepository.findByKsefNumber(meta.getKsefNumber()).isPresent()) {
+                    log.debug("Faktura {} już istnieje w bazie, pomijam", meta.getKsefNumber());
+                    skipped++;
+                    continue;
+                }
+
+                try {
+                    // 2. Pobierz pełną treść faktury z KSeF
+                    String xml = ksefApiClient.getInvoiceContent(accessToken, meta.getKsefNumber());
+
+                    // 3. Parsuj XML FA(3) → encja Invoice
+                    Invoice invoice = fa3XmlParser.parse(xml, user.getId());
+
+                    // 4. Uzupełnij numer KSeF i zapisz oryginalny XML
+                    invoice.setKsefNumber(meta.getKsefNumber());
+                    invoice.setFa2Xml(xml);
+
+                    // 5. Zapisz do bazy (status=RECEIVED_FROM_KSEF, source=KSEF ustawione przez parser)
+                    invoiceRepository.save(invoice);
+                    saved++;
+                    log.debug("Zapisano fakturę ksefNumber={}", meta.getKsefNumber());
+
+                } catch (Exception e) {
+                    log.error("Błąd przetwarzania faktury ksefNumber={}: {}",
+                            meta.getKsefNumber(), e.getMessage(), e);
+                    errors++;
+                }
+            }
+
+            log.info("Pobieranie zakończone dla userId={}: zapisano={}, pominięto={}, błędy={}",
+                    user.getId(), saved, skipped, errors);
+
         } catch (Exception e) {
             log.error("Failed to fetch invoices for user {}: {}", message.getUserId(), e.getMessage(), e);
         }
@@ -225,8 +263,21 @@ public class InvoiceQueueConsumer {
         return null;
     }
 
-    // TODO: Dodać metodę @Scheduled(cron = "0 0 6 * * *") (codziennie o 6:00) która dla każdego
-    //       użytkownika z ustawionym ksefToken publikuje FetchInvoicesMessage do invoice.fetch.queue.
-    //       Aktualnie handleFetchInvoices() jest konsumentem bez producenta.
-    //       Klasa musi być oznaczona @EnableScheduling lub użyć istniejącego z KsefApplication.java.
+    /**
+     * Codziennie o 6:00 publikuje FetchInvoicesMessage do {@code invoice.fetch.queue}
+     * dla każdego użytkownika, który ma ustawiony token KSeF.
+     * Zakres dat: poprzedni dzień (T-1), format ISO-8601 wymagany przez KSeF API v2.
+     */
+    @Scheduled(cron = "0 0 6 * * *")
+    public void scheduleDailyFetch() {
+        String dateFrom = LocalDate.now().minusDays(1).format(DateTimeFormatter.ISO_LOCAL_DATE) + "T00:00:00Z";
+        String dateTo   = LocalDate.now().minusDays(1).format(DateTimeFormatter.ISO_LOCAL_DATE) + "T23:59:59Z";
+
+        userRepository.findAll().stream()
+                .filter(u -> u.getKsefToken() != null && !u.getKsefToken().isBlank())
+                .forEach(u -> {
+                    queuePublisher.publishFetchInvoices(u.getId(), dateFrom, dateTo);
+                    log.info("Scheduled daily fetch queued for userId={}", u.getId());
+                });
+    }
 }

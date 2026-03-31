@@ -69,6 +69,24 @@ public class InvoiceController {
         return ResponseEntity.ok(invoiceService.toResponse(invoice));
     }
 
+    /** Save invoice as draft without FA(3) validation or queuing */
+    @PostMapping("/draft")
+    public ResponseEntity<InvoiceDto.Response> createDraft(
+            @RequestHeader("X-User-Id") UUID userId,
+            @Valid @RequestBody InvoiceDto.CreateRequest request) {
+        var invoice = invoiceService.createDraft(userId, request);
+        return ResponseEntity.ok(invoiceService.toResponse(invoice));
+    }
+
+    /** Queue a DRAFT invoice for KSeF send after FA(3) validation */
+    @PostMapping("/{id}/send")
+    public ResponseEntity<InvoiceDto.Response> sendDraft(
+            @RequestHeader("X-User-Id") UUID userId,
+            @PathVariable UUID id) {
+        var invoice = invoiceService.sendDraft(id, userId);
+        return ResponseEntity.ok(invoiceService.toResponse(invoice));
+    }
+
     /** Preview XLSX parse result without creating invoice */
     @PostMapping("/xlsx-preview")
     public ResponseEntity<java.util.Map<String, String>> previewXlsx(

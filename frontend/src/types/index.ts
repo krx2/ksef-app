@@ -1,6 +1,6 @@
 export type InvoiceDirection = 'ISSUED' | 'RECEIVED';
 export type InvoiceStatus   = 'DRAFT' | 'QUEUED' | 'SENDING' | 'SENT' | 'FAILED' | 'RECEIVED_FROM_KSEF';
-export type InvoiceSource   = 'FORM' | 'XLSX';
+export type InvoiceSource   = 'FORM' | 'XLSX' | 'KSEF';
 
 /** Rodzaj faktury zgodny z FA(3) KSeF */
 export type RodzajFaktury = 'VAT' | 'KOR' | 'ZAL' | 'ROZ' | 'UPR' | 'KOR_ZAL' | 'KOR_ROZ';

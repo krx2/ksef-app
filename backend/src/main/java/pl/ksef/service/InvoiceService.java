@@ -63,16 +63,39 @@ public class InvoiceService {
 
     /**
      * Tworzy szkic faktury bez walidacji FA(3) i kolejkowania.
-     * TODO: Ta metoda nie jest wywoływana przez żaden kontroler — brak endpointu POST /invoices/draft.
-     *       Jeśli funkcjonalność "zapisz szkic i wyślij później" ma być dostępna, trzeba:
-     *       1. Dodać endpoint POST /invoices/draft w InvoiceController.
-     *       2. Dodać endpoint POST /invoices/{id}/send (zmiana statusu DRAFT → QUEUED + publikacja do MQ).
-     *       3. W UI dodać przycisk "Zapisz szkic" obok "Wyślij do KSeF".
+     * Status faktury jest ustawiony na DRAFT. Fakturę można wysłać później przez {@link #sendDraft}.
      */
     @Transactional
     public Invoice createDraft(UUID userId, InvoiceDto.CreateRequest req) {
         Invoice invoice = buildInvoice(userId, req, InvoiceSource.FORM);
         return invoiceRepository.save(invoice);
+    }
+
+    /**
+     * Waliduje szkic faktury i umieszcza ją w kolejce do wysyłki do KSeF.
+     * Zmienia status ze {@code DRAFT} na {@code QUEUED}.
+     *
+     * @throws IllegalStateException jeśli faktura nie jest w statusie DRAFT lub nie należy do userId
+     */
+    @Transactional
+    public Invoice sendDraft(UUID invoiceId, UUID userId) {
+        Invoice invoice = invoiceRepository.findById(invoiceId)
+                .filter(inv -> inv.getUserId().equals(userId))
+                .orElseThrow(() -> new ResourceNotFoundException("Invoice " + invoiceId));
+
+        if (invoice.getStatus() != Invoice.InvoiceStatus.DRAFT) {
+            throw new IllegalStateException(
+                    "Faktura " + invoiceId + " ma status " + invoice.getStatus()
+                    + " — tylko faktury ze statusem DRAFT mogą być wysłane tą metodą");
+        }
+
+        fa3Validator.validate(invoice);
+
+        invoice.setStatus(Invoice.InvoiceStatus.QUEUED);
+        invoice = invoiceRepository.save(invoice);
+        queuePublisher.publishSendInvoice(invoice.getId(), userId);
+        log.info("Draft invoice {} queued for KSeF send by user {}", invoiceId, userId);
+        return invoice;
     }
 
     public InvoiceDto.PageResponse listByUser(UUID userId, InvoiceDirection direction,
@@ -148,7 +171,6 @@ public class InvoiceService {
             BigDecimal gross = net.add(vat);
 
             InvoiceItem item = InvoiceItem.builder()
-                    .invoice(invoice)
                     .name(itemReq.getName())
                     .unit(itemReq.getUnit())
                     .quantity(itemReq.getQuantity())
@@ -160,6 +182,7 @@ public class InvoiceService {
                     .grossAmount(gross)
                     .position(pos++)
                     .build();
+            item.setInvoice(invoice);
 
             invoice.getItems().add(item);
             totalNet = totalNet.add(net);

@@ -6,6 +6,14 @@ CREATE TABLE users (
     nip         VARCHAR(10)  NOT NULL,
     company_name VARCHAR(255) NOT NULL,
     ksef_token  TEXT,
+    -- JWT access/refresh tokeny KSeF API v2
+    -- ksef_token to token KSeF użytkownika używany do inicjalizacji auth
+    -- ksef_access_token to krótkotrwały JWT Bearer do wywołań API
+    -- ksef_refresh_token to długotrwały JWT do odnawiania access tokena bez pełnego re-auth
+    ksef_access_token             TEXT,
+    ksef_access_token_valid_until TIMESTAMP,
+    ksef_refresh_token            TEXT,
+    ksef_refresh_token_valid_until TIMESTAMP,
     created_at  TIMESTAMP    NOT NULL DEFAULT NOW(),
     updated_at  TIMESTAMP    NOT NULL DEFAULT NOW()
 );
@@ -42,10 +50,17 @@ CREATE TABLE invoices (
     vat_amount      NUMERIC(18,2) NOT NULL DEFAULT 0,
     gross_amount    NUMERIC(18,2) NOT NULL DEFAULT 0,
     currency        VARCHAR(3)   NOT NULL DEFAULT 'PLN',
-    -- raw FA(2) XML sent/received
     fa2_xml         TEXT,
     error_message   TEXT,
-    source          VARCHAR(10)  NOT NULL DEFAULT 'FORM' CHECK (source IN ('FORM', 'XLSX')),
+    source          VARCHAR(10)  NOT NULL DEFAULT 'FORM' CHECK (source IN ('FORM', 'XLSX', 'KSEF')),
+    -- FA(3) fields
+    rodzaj_faktury                   VARCHAR(10)  NOT NULL DEFAULT 'VAT',
+    seller_country_code              VARCHAR(2)   NOT NULL DEFAULT 'PL',
+    buyer_country_code               VARCHAR(2)   NOT NULL DEFAULT 'PL',
+    metoda_kasowa                    BOOLEAN      NOT NULL DEFAULT FALSE,
+    samofakturowanie                 BOOLEAN      NOT NULL DEFAULT FALSE,
+    odwrotne_obciazenie              BOOLEAN      NOT NULL DEFAULT FALSE,
+    mechanizm_podzielonej_platnosci  BOOLEAN      NOT NULL DEFAULT FALSE,
     created_at      TIMESTAMP    NOT NULL DEFAULT NOW(),
     updated_at      TIMESTAMP    NOT NULL DEFAULT NOW()
 );
@@ -61,7 +76,9 @@ CREATE TABLE invoice_items (
     net_amount      NUMERIC(18,2) NOT NULL,
     vat_amount      NUMERIC(18,2) NOT NULL,
     gross_amount    NUMERIC(18,2) NOT NULL,
-    position        INT          NOT NULL DEFAULT 1
+    position        INT          NOT NULL DEFAULT 1,
+    -- FA(3) VAT rate code (TStawkaPodatku): "23","8","5","0 KR","0 WDT","0 EX","zw","oo","np I","np II"
+    vat_rate_code   VARCHAR(10)
 );
 
 CREATE INDEX idx_invoices_user_id        ON invoices(user_id);

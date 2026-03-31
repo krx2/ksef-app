@@ -2,6 +2,8 @@ package pl.ksef.service.ksef;
 
 import org.springframework.stereotype.Component;
 import pl.ksef.dto.InvoiceDto;
+import pl.ksef.entity.Invoice;
+import pl.ksef.entity.InvoiceItem;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -89,6 +91,79 @@ public class Fa3Validator {
     }
 
     private void validateItem(InvoiceDto.ItemRequest item, int pos, List<String> errors) {
+        String prefix = "items[" + pos + "]";
+
+        if (item.getName() == null || item.getName().isBlank()) {
+            errors.add(prefix + ".name: Nazwa pozycji jest wymagana (P_7 FA(3))");
+        } else if (item.getName().length() > 256) {
+            errors.add(prefix + ".name: Nazwa pozycji nie może przekraczać 256 znaków (P_7 FA(3))");
+        }
+
+        if (item.getQuantity() == null || item.getQuantity().compareTo(BigDecimal.ZERO) <= 0) {
+            errors.add(prefix + ".quantity: Ilość musi być większa od 0 (FA(3))");
+        }
+
+        if (item.getNetUnitPrice() == null || item.getNetUnitPrice().compareTo(BigDecimal.ZERO) == 0) {
+            errors.add(prefix + ".netUnitPrice: Cena jednostkowa netto nie może być równa 0 (FA(3))");
+        }
+
+        if (item.getVatRateCode() != null && !item.getVatRateCode().isBlank()) {
+            if (!VALID_VAT_RATE_CODES.contains(item.getVatRateCode())) {
+                errors.add(prefix + ".vatRateCode: Niedozwolona stawka '" + item.getVatRateCode()
+                        + "'. Dozwolone kody FA(3): " + VALID_VAT_RATE_CODES);
+            }
+        } else if (item.getVatRate() != null) {
+            int intRate = item.getVatRate().intValue();
+            if (!VALID_NUMERIC_VAT_RATES.contains(intRate)) {
+                errors.add(prefix + ".vatRate: Stawka " + item.getVatRate()
+                        + "% nie jest obsługiwana w FA(3). Dozwolone: 23, 22, 8, 7, 5, 4, 3, 0. "
+                        + "Dla zwolnienia/odwrotnego obciążenia podaj vatRateCode (np. \"zw\", \"oo\")");
+            }
+        }
+    }
+
+    /**
+     * Waliduje encję Invoice (np. przed wysyłką szkicu do KSeF).
+     * Stosuje te same reguły FA(3) co {@link #validate(InvoiceDto.CreateRequest)}.
+     */
+    public void validate(Invoice invoice) {
+        List<String> errors = new ArrayList<>();
+
+        validateNip(invoice.getSellerNip(), "sellerNip", errors);
+        validateNip(invoice.getBuyerNip(), "buyerNip", errors);
+
+        if (invoice.getCurrency() != null && !VALID_CURRENCIES.contains(invoice.getCurrency())) {
+            errors.add("currency: Kod waluty '" + invoice.getCurrency() + "' nie jest obsługiwany przez FA(3)");
+        }
+
+        if (invoice.getRodzajFaktury() != null && !VALID_RODZAJ_FAKTURY.contains(invoice.getRodzajFaktury())) {
+            errors.add("rodzajFaktury: Nieprawidłowa wartość '" + invoice.getRodzajFaktury()
+                    + "'. Dozwolone: " + VALID_RODZAJ_FAKTURY);
+        }
+
+        if (invoice.getIssueDate() != null && invoice.getIssueDate().isBefore(LocalDate.of(2006, 1, 1))) {
+            errors.add("issueDate: Data wystawienia nie może być wcześniejsza niż 2006-01-01 (ograniczenie TDataT)");
+        }
+
+        if (invoice.getSellerAddress() == null || invoice.getSellerAddress().isBlank()) {
+            errors.add("sellerAddress: Adres sprzedawcy jest wymagany w schemacie FA(3)");
+        }
+
+        if (invoice.getItems() == null || invoice.getItems().isEmpty()) {
+            errors.add("items: Faktura musi zawierać co najmniej jedną pozycję (FA(3))");
+        } else {
+            int pos = 1;
+            for (InvoiceItem item : invoice.getItems()) {
+                validateEntityItem(item, pos++, errors);
+            }
+        }
+
+        if (!errors.isEmpty()) {
+            throw new IllegalArgumentException("Błędy walidacji FA(3):\n" + String.join("\n", errors));
+        }
+    }
+
+    private void validateEntityItem(InvoiceItem item, int pos, List<String> errors) {
         String prefix = "items[" + pos + "]";
 
         if (item.getName() == null || item.getName().isBlank()) {
