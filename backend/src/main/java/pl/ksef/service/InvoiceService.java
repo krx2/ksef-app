@@ -147,6 +147,9 @@ public class InvoiceService {
                 .samofakturowanie(req.isSamofakturowanie())
                 .odwrotneObciazenie(req.isOdwrotneObciazenie())
                 .mechanizmPodzielonejPlatnosci(req.isMechanizmPodzielonejPlatnosci())
+                .zwolnieniePodatkowe(req.getZwolnieniePodatkowe())
+                .jst(req.isJst())
+                .gv(req.isGv())
                 .build();
 
         int pos = 1;
@@ -222,6 +225,9 @@ public class InvoiceService {
         r.setSamofakturowanie(i.isSamofakturowanie());
         r.setOdwrotneObciazenie(i.isOdwrotneObciazenie());
         r.setMechanizmPodzielonejPlatnosci(i.isMechanizmPodzielonejPlatnosci());
+        r.setZwolnieniePodatkowe(i.getZwolnieniePodatkowe());
+        r.setJst(i.isJst());
+        r.setGv(i.isGv());
         r.setErrorMessage(i.getErrorMessage());
         r.setSource(i.getSource());
         r.setCreatedAt(i.getCreatedAt());

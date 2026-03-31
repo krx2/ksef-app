@@ -40,6 +40,23 @@ public class Fa3Validator {
         "VAT","KOR","ZAL","ROZ","UPR","KOR_ZAL","KOR_ROZ"
     );
 
+    /** Typy faktur, dla których lista pozycji (FaWiersz) jest opcjonalna wg XSD. */
+    private static final Set<String> TYPES_WITHOUT_REQUIRED_ITEMS = Set.of(
+        "ZAL","ROZ","KOR","KOR_ZAL","KOR_ROZ"
+    );
+
+    /** Typy faktur korygujących — P_7 (nazwa) może być pominięta. */
+    private static final Set<String> CORRECTION_TYPES = Set.of(
+        "KOR","KOR_ZAL","KOR_ROZ"
+    );
+
+    /** Kody krajów UE zgodne z TKodyKrajowUE w schemacie FA(3). */
+    private static final Set<String> VALID_EU_COUNTRY_CODES = Set.of(
+        "AT","BE","BG","CY","CZ","DK","EE","FI","FR","DE","EL","HR",
+        "HU","IE","IT","LV","LT","LU","MT","NL","PL","PT","RO","SK",
+        "SI","ES","SE","XI"
+    );
+
     /** Dozwolone kody stawki VAT zgodne z TStawkaPodatku w FA(3). */
     public static final Set<String> VALID_VAT_RATE_CODES = Set.of(
         "23","22","8","7","5","4","3","0 KR","0 WDT","0 EX","zw","oo","np I","np II"
@@ -77,11 +94,33 @@ public class Fa3Validator {
             errors.add("sellerAddress: Adres sprzedawcy jest wymagany w schemacie FA(3)");
         }
 
-        if (req.getItems() == null || req.getItems().isEmpty()) {
-            errors.add("items: Faktura musi zawierać co najmniej jedną pozycję (FA(3))");
-        } else {
+        // TKodyKrajowUE — tylko kody krajów UE są dozwolone
+        if (req.getSellerCountryCode() != null && !VALID_EU_COUNTRY_CODES.contains(req.getSellerCountryCode())) {
+            errors.add("sellerCountryCode: Kod '" + req.getSellerCountryCode()
+                    + "' nie należy do TKodyKrajowUE FA(3). Dozwolone: " + VALID_EU_COUNTRY_CODES);
+        }
+        if (req.getBuyerCountryCode() != null && !VALID_EU_COUNTRY_CODES.contains(req.getBuyerCountryCode())) {
+            errors.add("buyerCountryCode: Kod '" + req.getBuyerCountryCode()
+                    + "' nie należy do TKodyKrajowUE FA(3). Dozwolone: " + VALID_EU_COUNTRY_CODES);
+        }
+
+        String rodzaj = req.getRodzajFaktury() != null ? req.getRodzajFaktury() : "VAT";
+        boolean itemsRequired = !TYPES_WITHOUT_REQUIRED_ITEMS.contains(rodzaj);
+        boolean hasItems = req.getItems() != null && !req.getItems().isEmpty();
+
+        if (itemsRequired && !hasItems) {
+            errors.add("items: Faktura typu " + rodzaj + " musi zawierać co najmniej jedną pozycję (FA(3))");
+        }
+
+        if (hasItems) {
+            boolean hasZwolnienie = req.getItems().stream()
+                    .anyMatch(it -> "zw".equals(it.getVatRateCode()));
+            if (hasZwolnienie && (req.getZwolnieniePodatkowe() == null || req.getZwolnieniePodatkowe().isBlank())) {
+                errors.add("zwolnieniePodatkowe: Podstawa prawna zwolnienia jest wymagana gdy pozycja ma vatRateCode=\"zw\" (pole P_19 FA(3))");
+            }
+
             for (int i = 0; i < req.getItems().size(); i++) {
-                validateItem(req.getItems().get(i), i + 1, errors);
+                validateItem(req.getItems().get(i), i + 1, CORRECTION_TYPES.contains(rodzaj), errors);
             }
         }
 
@@ -90,12 +129,15 @@ public class Fa3Validator {
         }
     }
 
-    private void validateItem(InvoiceDto.ItemRequest item, int pos, List<String> errors) {
+    /**
+     * @param isCorrection true dla typów KOR/KOR_ZAL/KOR_ROZ — wtedy P_7 (name) jest opcjonalne
+     */
+    private void validateItem(InvoiceDto.ItemRequest item, int pos, boolean isCorrection, List<String> errors) {
         String prefix = "items[" + pos + "]";
 
-        if (item.getName() == null || item.getName().isBlank()) {
+        if (!isCorrection && (item.getName() == null || item.getName().isBlank())) {
             errors.add(prefix + ".name: Nazwa pozycji jest wymagana (P_7 FA(3))");
-        } else if (item.getName().length() > 256) {
+        } else if (item.getName() != null && item.getName().length() > 256) {
             errors.add(prefix + ".name: Nazwa pozycji nie może przekraczać 256 znaków (P_7 FA(3))");
         }
 
@@ -149,12 +191,34 @@ public class Fa3Validator {
             errors.add("sellerAddress: Adres sprzedawcy jest wymagany w schemacie FA(3)");
         }
 
-        if (invoice.getItems() == null || invoice.getItems().isEmpty()) {
-            errors.add("items: Faktura musi zawierać co najmniej jedną pozycję (FA(3))");
-        } else {
+        if (invoice.getSellerCountryCode() != null && !VALID_EU_COUNTRY_CODES.contains(invoice.getSellerCountryCode())) {
+            errors.add("sellerCountryCode: Kod '" + invoice.getSellerCountryCode()
+                    + "' nie należy do TKodyKrajowUE FA(3). Dozwolone: " + VALID_EU_COUNTRY_CODES);
+        }
+        if (invoice.getBuyerCountryCode() != null && !VALID_EU_COUNTRY_CODES.contains(invoice.getBuyerCountryCode())) {
+            errors.add("buyerCountryCode: Kod '" + invoice.getBuyerCountryCode()
+                    + "' nie należy do TKodyKrajowUE FA(3). Dozwolone: " + VALID_EU_COUNTRY_CODES);
+        }
+
+        String rodzaj = invoice.getRodzajFaktury() != null ? invoice.getRodzajFaktury() : "VAT";
+        boolean itemsRequired = !TYPES_WITHOUT_REQUIRED_ITEMS.contains(rodzaj);
+        boolean isCorrection = CORRECTION_TYPES.contains(rodzaj);
+        boolean hasItems = invoice.getItems() != null && !invoice.getItems().isEmpty();
+
+        if (itemsRequired && !hasItems) {
+            errors.add("items: Faktura typu " + rodzaj + " musi zawierać co najmniej jedną pozycję (FA(3))");
+        }
+
+        if (hasItems) {
+            boolean hasZwolnienie = invoice.getItems().stream()
+                    .anyMatch(it -> "zw".equals(it.getVatRateCode()));
+            if (hasZwolnienie && (invoice.getZwolnieniePodatkowe() == null || invoice.getZwolnieniePodatkowe().isBlank())) {
+                errors.add("zwolnieniePodatkowe: Podstawa prawna zwolnienia jest wymagana gdy pozycja ma vatRateCode=\"zw\" (pole P_19 FA(3))");
+            }
+
             int pos = 1;
             for (InvoiceItem item : invoice.getItems()) {
-                validateEntityItem(item, pos++, errors);
+                validateEntityItem(item, pos++, isCorrection, errors);
             }
         }
 
@@ -163,12 +227,15 @@ public class Fa3Validator {
         }
     }
 
-    private void validateEntityItem(InvoiceItem item, int pos, List<String> errors) {
+    /**
+     * @param isCorrection true dla typów KOR/KOR_ZAL/KOR_ROZ — wtedy P_7 (name) jest opcjonalne
+     */
+    private void validateEntityItem(InvoiceItem item, int pos, boolean isCorrection, List<String> errors) {
         String prefix = "items[" + pos + "]";
 
-        if (item.getName() == null || item.getName().isBlank()) {
+        if (!isCorrection && (item.getName() == null || item.getName().isBlank())) {
             errors.add(prefix + ".name: Nazwa pozycji jest wymagana (P_7 FA(3))");
-        } else if (item.getName().length() > 256) {
+        } else if (item.getName() != null && item.getName().length() > 256) {
             errors.add(prefix + ".name: Nazwa pozycji nie może przekraczać 256 znaków (P_7 FA(3))");
         }
 

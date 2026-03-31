@@ -72,6 +72,19 @@ public class InvoiceDto {
         /** P_18A: mechanizm podzielonej płatności */
         private boolean mechanizmPodzielonejPlatnosci = false;
 
+        /**
+         * Podstawa prawna zwolnienia z VAT (P_19 FA(3)).
+         * Wymagana gdy co najmniej jedna pozycja ma vatRateCode="zw".
+         * Przykład: "art. 43 ust. 1 pkt 1 ustawy"
+         */
+        private String zwolnieniePodatkowe;
+
+        /** Podmiot2.JST — faktura dotyczy jednostki podrzędnej JST (domyślnie false). */
+        private boolean jst = false;
+
+        /** Podmiot2.GV — faktura dotyczy członka grupy VAT (domyślnie false). */
+        private boolean gv = false;
+
         @NotEmpty @Valid
         private List<ItemRequest> items;
     }
@@ -130,6 +143,9 @@ public class InvoiceDto {
         private boolean samofakturowanie;
         private boolean odwrotneObciazenie;
         private boolean mechanizmPodzielonejPlatnosci;
+        private String zwolnieniePodatkowe;
+        private boolean jst;
+        private boolean gv;
         private String errorMessage;
         private Invoice.InvoiceSource source;
         private List<ItemResponse> items;

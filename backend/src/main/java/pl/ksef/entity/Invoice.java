@@ -110,6 +110,18 @@ public class Invoice {
     @Column(name = "mechanizm_podzielonej_platnosci", nullable = false)
     private boolean mechanizmPodzielonejPlatnosci = false;
 
+    /** Podstawa prawna zwolnienia (P_19 FA(3)). Wymagana gdy pozycje mają vatRateCode="zw". */
+    @Column(name = "zwolnienie_podatkowe", columnDefinition = "TEXT")
+    private String zwolnieniePodatkowe;
+
+    /** Podmiot2.JST — czy faktura dotyczy jednostki podrzędnej JST. */
+    @Column(name = "jst", nullable = false)
+    private boolean jst = false;
+
+    /** Podmiot2.GV — czy faktura dotyczy członka grupy VAT. */
+    @Column(name = "gv", nullable = false)
+    private boolean gv = false;
+
     @OneToMany(mappedBy = "invoice", cascade = CascadeType.ALL, orphanRemoval = true)
     @OrderBy("position ASC")
     @Builder.Default

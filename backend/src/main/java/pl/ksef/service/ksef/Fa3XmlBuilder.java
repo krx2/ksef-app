@@ -48,9 +48,8 @@ public class Fa3XmlBuilder {
      * @return łańcuch XML zakodowany w UTF-8, gotowy do szyfrowania i wysyłki do KSeF
      */
     public String build(Invoice invoice) {
-        if (invoice.getItems() == null || invoice.getItems().isEmpty()) {
-            throw new KsefException("Faktura " + invoice.getInvoiceNumber() + " nie ma pozycji — nie można zbudować XML FA(3)");
-        }
+        // FaWiersz ma minOccurs="0" w XSD — dla typów ZAL/ROZ/KOR* lista pozycji może być pusta.
+        // Dla VAT/UPR pozycje są wymagane (walidowane przez Fa3Validator przed wywołaniem build()).
         StringBuilder sb = new StringBuilder(4096);
         sb.append("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
         sb.append("<Faktura xmlns=\"").append(FA3_NS).append("\">\n");
@@ -72,7 +71,14 @@ public class Fa3XmlBuilder {
      * ograniczenie XSD minInclusive="2025-09-01T00:00:00Z".
      */
     private void appendNaglowek(StringBuilder sb) {
-        String nowUtc = ZonedDateTime.now(ZoneOffset.UTC).format(DT_UTC_FMT);
+        ZonedDateTime now = ZonedDateTime.now(ZoneOffset.UTC);
+        ZonedDateTime minDate = ZonedDateTime.of(2025, 9, 1, 0, 0, 0, 0, ZoneOffset.UTC);
+        if (now.isBefore(minDate)) {
+            throw new KsefException(
+                "DataWytworzeniaFa nie może być wcześniejsza niż 2025-09-01T00:00:00Z (ograniczenie XSD FA(3)). "
+                + "Sprawdź zegar systemowy.");
+        }
+        String nowUtc = now.format(DT_UTC_FMT);
         sb.append("  <Naglowek>\n");
         sb.append("    <KodFormularza kodSystemowy=\"FA (3)\" wersjaSchemy=\"1-0E\">FA</KodFormularza>\n");
         sb.append("    <WariantFormularza>3</WariantFormularza>\n");
@@ -136,8 +142,8 @@ public class Fa3XmlBuilder {
             sb.append("      <AdresL1>").append(esc(invoice.getBuyerAddress())).append("</AdresL1>\n");
             sb.append("    </Adres>\n");
         }
-        sb.append("    <JST>2</JST>\n");   // 2 = faktura nie dotyczy jednostki podrzędnej JST
-        sb.append("    <GV>2</GV>\n");     // 2 = faktura nie dotyczy członka grupy VAT
+        sb.append("    <JST>").append(invoice.isJst() ? "1" : "2").append("</JST>\n");
+        sb.append("    <GV>") .append(invoice.isGv()  ? "1" : "2").append("</GV>\n");
         sb.append("  </Podmiot2>\n");
     }
 
@@ -171,7 +177,9 @@ public class Fa3XmlBuilder {
 
         sb.append("    <RodzajFaktury>").append(coal(invoice.getRodzajFaktury(), "VAT")).append("</RodzajFaktury>\n");
 
-        appendFaWiersze(sb, invoice.getItems());
+        if (invoice.getItems() != null && !invoice.getItems().isEmpty()) {
+            appendFaWiersze(sb, invoice.getItems());
+        }
 
         sb.append("  </Fa>\n");
     }
@@ -274,14 +282,28 @@ public class Fa3XmlBuilder {
      * są hardcoded na wartość "brak" (brak zwolnienia, brak WDT nowych środków, brak procedur
      * trójstronnych, brak marży). Rozszerzenia dla faktur ze zwolnieniem z VAT (P_19, P_19A/B/C)
      * lub faktur z procedurą marży (P_PMarzy_x) wymagają dodania odpowiednich pól do encji Invoice.
+     *
+     * <p>Zwolnienie: gdy pozycje mają vatRateCode="zw", emitujemy P_19 z podstawą prawną
+     * z pola {@code invoice.zwolnieniePodatkowe}. Fa3Validator wymaga tego pola przy "zw".
      */
     private void appendAdnotacje(StringBuilder sb, Invoice invoice) {
+        boolean hasZwolnienie = invoice.getItems() != null && invoice.getItems().stream()
+                .anyMatch(it -> "zw".equals(resolveVatRateCode(it)));
+
         sb.append("    <Adnotacje>\n");
-        sb.append("      <P_16>") .append(invoice.isMetodaKasowa()                   ? "1" : "2").append("</P_16>\n");
-        sb.append("      <P_17>") .append(invoice.isSamofakturowanie()               ? "1" : "2").append("</P_17>\n");
-        sb.append("      <P_18>") .append(invoice.isOdwrotneObciazenie()             ? "1" : "2").append("</P_18>\n");
-        sb.append("      <P_18A>").append(invoice.isMechanizmPodzielonejPlatnosci()  ? "1" : "2").append("</P_18A>\n");
-        sb.append("      <Zwolnienie><P_19N>1</P_19N></Zwolnienie>\n");
+        sb.append("      <P_16>") .append(invoice.isMetodaKasowa()                  ? "1" : "2").append("</P_16>\n");
+        sb.append("      <P_17>") .append(invoice.isSamofakturowanie()              ? "1" : "2").append("</P_17>\n");
+        sb.append("      <P_18>") .append(invoice.isOdwrotneObciazenie()            ? "1" : "2").append("</P_18>\n");
+        sb.append("      <P_18A>").append(invoice.isMechanizmPodzielonejPlatnosci() ? "1" : "2").append("</P_18A>\n");
+
+        if (hasZwolnienie) {
+            sb.append("      <Zwolnienie><P_19>")
+              .append(esc(invoice.getZwolnieniePodatkowe()))
+              .append("</P_19></Zwolnienie>\n");
+        } else {
+            sb.append("      <Zwolnienie><P_19N>1</P_19N></Zwolnienie>\n");
+        }
+
         sb.append("      <NoweSrodkiTransportu><P_22N>1</P_22N></NoweSrodkiTransportu>\n");
         sb.append("      <P_23>2</P_23>\n");
         sb.append("      <PMarzy><P_PMarzyN>1</P_PMarzyN></PMarzy>\n");
@@ -311,7 +333,13 @@ public class Fa3XmlBuilder {
         for (InvoiceItem item : items) {
             sb.append("    <FaWiersz>\n");
             sb.append("      <NrWierszaFa>").append(nr++).append("</NrWierszaFa>\n");
-            sb.append("      <P_7>").append(esc(item.getName())).append("</P_7>\n");
+            // P_7 (nazwa towaru/usługi) — wymagana dla VAT/ZAL/ROZ/UPR,
+            // opcjonalna tylko dla KOR/KOR_ZAL/KOR_ROZ (art. 106j ust. 3 pkt 2).
+            // Emitujemy zawsze gdy niepuste — brak wartości dla typów niekorygujących
+            // jest wychwytywany przez Fa3Validator.
+            if (hasValue(item.getName())) {
+                sb.append("      <P_7>").append(esc(item.getName())).append("</P_7>\n");
+            }
             if (hasValue(item.getUnit())) {
                 sb.append("      <P_8A>").append(esc(item.getUnit())).append("</P_8A>\n");
             }
@@ -349,7 +377,10 @@ public class Fa3XmlBuilder {
             case 4  -> "4";
             case 3  -> "3";
             case 0  -> "0 KR"; // domyślnie 0% krajowy; użyj vatRateCode aby wybrać WDT / EX
-            default -> String.valueOf(rate.intValue());
+            default -> throw new KsefException(
+                "Stawka VAT " + rate.intValue() + "% nie jest obsługiwana przez TStawkaPodatku FA(3). "
+                + "Dozwolone stawki numeryczne: 23, 22, 8, 7, 5, 4, 3, 0. "
+                + "Dla zwolnienia/odwrotnego obciążenia podaj vatRateCode (np. \"zw\", \"oo\").");
         };
     }
 
@@ -390,8 +421,6 @@ public class Fa3XmlBuilder {
     /** TIlosci — 6 miejsc po przecinku (P_8B — ilość). */
     private static String scale6(BigDecimal v) {
         if (v == null) return "0.000000";
-        BigDecimal scaled = v.setScale(6, RoundingMode.HALF_UP).stripTrailingZeros();
-        if (scaled.scale() < 0) scaled = scaled.setScale(0);
-        return scaled.toPlainString();
+        return v.setScale(6, RoundingMode.HALF_UP).stripTrailingZeros().toPlainString();
     }
 }
