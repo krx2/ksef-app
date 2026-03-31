@@ -269,15 +269,24 @@ public class KsefApiClient {
 
     /**
      * POST /invoices/query/metadata — pobiera metadane faktur według kryteriów.
-     * Paginacja przez parametry pageOffset i pageSize (max 250 na stronę).
+     *
      * @param accessToken JWT access token
-     * @param request     Kryteria wyszukiwania
+     * @param request     Kryteria wyszukiwania (filtry)
+     * @param pageOffset  Indeks pierwszej strony wyników (0 = pierwsza strona, min=0)
+     * @param pageSize    Rozmiar strony (min=10, max=250)
+     * @param sortOrder   Kolejność sortowania: "Asc" | "Desc"
      */
     public KsefDto.QueryMetadataResponse queryInvoices(
-            String accessToken, KsefDto.QueryMetadataRequest request) {
+            String accessToken, KsefDto.QueryMetadataRequest request,
+            int pageOffset, int pageSize, String sortOrder) {
 
         KsefDto.QueryMetadataResponse resp = restClient.post()
-                .uri("/invoices/query/metadata")
+                .uri(uriBuilder -> uriBuilder
+                        .path("/invoices/query/metadata")
+                        .queryParam("pageOffset", pageOffset)
+                        .queryParam("pageSize", pageSize)
+                        .queryParam("sortOrder", sortOrder)
+                        .build())
                 .header("Authorization", "Bearer " + accessToken)
                 .contentType(MediaType.APPLICATION_JSON)
                 .body(request)
@@ -287,7 +296,8 @@ public class KsefApiClient {
         if (resp == null) {
             throw new KsefException("Pusta odpowiedź z /invoices/query/metadata");
         }
-        log.info("Pobrano metadane faktur: {} rekordów, hasMore={}",
+        log.info("Pobrano metadane faktur (offset={}, size={}, sort={}): {} rekordów, hasMore={}",
+                pageOffset, pageSize, sortOrder,
                 resp.getInvoices() != null ? resp.getInvoices().size() : 0, resp.isHasMore());
         return resp;
     }

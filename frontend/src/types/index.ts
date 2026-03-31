@@ -75,11 +75,30 @@ export interface Invoice {
   samofakturowanie: boolean;
   odwrotneObciazenie: boolean;
   mechanizmPodzielonejPlatnosci: boolean;
+  /** Podstawa prawna zwolnienia z VAT (P_19 FA(3)) — wymagana gdy pozycja ma vatRateCode="zw" */
+  zwolnieniePodatkowe?: string;
+  /** Podmiot2.JST — faktura dotyczy jednostki podrzędnej JST */
+  jst: boolean;
+  /** Podmiot2.GV — faktura dotyczy członka grupy VAT */
+  gv: boolean;
   errorMessage?: string;
   source: InvoiceSource;
   items: InvoiceItem[];
   createdAt: string;
   updatedAt: string;
+}
+
+/** Parametry filtrowania listy faktur przekazywane do GET /api/invoices */
+export interface InvoiceFilters {
+  direction?: InvoiceDirection;
+  /** Wyszukiwanie tekstowe — sprawdza: numer faktury, nazwę i NIP sprzedawcy/nabywcy */
+  search?: string;
+  status?: InvoiceStatus;
+  rodzajFaktury?: RodzajFaktury;
+  issueDateFrom?: string;   // ISO date YYYY-MM-DD
+  issueDateTo?: string;     // ISO date YYYY-MM-DD
+  page?: number;
+  size?: number;
 }
 
 export interface PageResponse<T> {

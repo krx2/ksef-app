@@ -8,6 +8,9 @@ import org.springframework.web.multipart.MultipartFile;
 import pl.ksef.dto.InvoiceDto;
 import pl.ksef.entity.Invoice.InvoiceDirection;
 import pl.ksef.entity.Invoice.InvoiceSource;
+import pl.ksef.entity.Invoice.InvoiceStatus;
+
+import java.time.LocalDate;
 import pl.ksef.service.InvoiceService;
 import pl.ksef.service.XlsxConfigService;
 import pl.ksef.service.XlsxParserService;
@@ -29,14 +32,29 @@ public class InvoiceController {
     private final XlsxParserService xlsxParserService;
     private final XlsxConfigService xlsxConfigService;
 
-    /** List invoices for user, optionally filtered by direction */
+    /**
+     * Pobiera paginowaną listę faktur użytkownika z opcjonalnym filtrowaniem.
+     *
+     * @param direction      ISSUED | RECEIVED; pominięcie = wszystkie
+     * @param search         wyszukiwanie tekstowe (nr faktury, nazwa/NIP sprzedawcy lub nabywcy)
+     * @param status         DRAFT | QUEUED | SENDING | SENT | FAILED | RECEIVED_FROM_KSEF
+     * @param rodzajFaktury  VAT | KOR | ZAL | ROZ | UPR | KOR_ZAL | KOR_ROZ
+     * @param issueDateFrom  data wystawienia od (YYYY-MM-DD, włącznie)
+     * @param issueDateTo    data wystawienia do (YYYY-MM-DD, włącznie)
+     */
     @GetMapping
     public ResponseEntity<InvoiceDto.PageResponse> list(
             @RequestHeader("X-User-Id") UUID userId,
             @RequestParam(required = false) InvoiceDirection direction,
+            @RequestParam(required = false) String search,
+            @RequestParam(required = false) InvoiceStatus status,
+            @RequestParam(required = false) String rodzajFaktury,
+            @RequestParam(required = false) LocalDate issueDateFrom,
+            @RequestParam(required = false) LocalDate issueDateTo,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
-        return ResponseEntity.ok(invoiceService.listByUser(userId, direction, page, size));
+        return ResponseEntity.ok(invoiceService.listByUser(
+                userId, direction, search, status, rodzajFaktury, issueDateFrom, issueDateTo, page, size));
     }
 
     /** Get single invoice */

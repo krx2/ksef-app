@@ -1,15 +1,19 @@
 package pl.ksef.service;
 
+import jakarta.persistence.criteria.Predicate;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import pl.ksef.dto.InvoiceDto;
 import pl.ksef.entity.Invoice;
 import pl.ksef.entity.Invoice.InvoiceDirection;
 import pl.ksef.entity.Invoice.InvoiceSource;
+import pl.ksef.entity.Invoice.InvoiceStatus;
 import pl.ksef.entity.InvoiceItem;
 import pl.ksef.exception.ResourceNotFoundException;
 import pl.ksef.repository.InvoiceRepository;
@@ -18,6 +22,9 @@ import pl.ksef.service.queue.InvoiceQueuePublisher;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.LocalDate;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 
@@ -98,13 +105,35 @@ public class InvoiceService {
         return invoice;
     }
 
-    public InvoiceDto.PageResponse listByUser(UUID userId, InvoiceDirection direction,
-                                               int page, int size) {
-        Page<Invoice> result = direction != null
-                ? invoiceRepository.findByUserIdAndDirectionOrderByCreatedAtDesc(
-                        userId, direction, PageRequest.of(page, size))
-                : invoiceRepository.findByUserIdOrderByCreatedAtDesc(
-                        userId, PageRequest.of(page, size));
+    /**
+     * Zwraca paginowaną listę faktur użytkownika z opcjonalnym filtrowaniem.
+     *
+     * @param userId         właściciel faktur
+     * @param direction      kierunek (ISSUED / RECEIVED) lub null = wszystkie
+     * @param search         wyszukiwanie tekstowe (LIKE) po: invoiceNumber, sellerName, sellerNip,
+     *                       buyerName, buyerNip; null = bez filtru
+     * @param status         status faktury lub null = wszystkie
+     * @param rodzajFaktury  typ faktury FA(3) lub null = wszystkie
+     * @param issueDateFrom  data wystawienia od (włącznie) lub null = bez dolnego ograniczenia
+     * @param issueDateTo    data wystawienia do (włącznie) lub null = bez górnego ograniczenia
+     * @param page           numer strony (0-based)
+     * @param size           rozmiar strony
+     */
+    public InvoiceDto.PageResponse listByUser(
+            UUID userId,
+            InvoiceDirection direction,
+            String search,
+            InvoiceStatus status,
+            String rodzajFaktury,
+            LocalDate issueDateFrom,
+            LocalDate issueDateTo,
+            int page, int size) {
+
+        Specification<Invoice> spec = buildSpec(userId, direction, search, status,
+                rodzajFaktury, issueDateFrom, issueDateTo);
+
+        Page<Invoice> result = invoiceRepository.findAll(
+                spec, PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt")));
 
         var response = new InvoiceDto.PageResponse();
         response.setContent(result.getContent().stream().map(this::toResponse).toList());
@@ -113,6 +142,56 @@ public class InvoiceService {
         response.setTotalElements(result.getTotalElements());
         response.setTotalPages(result.getTotalPages());
         return response;
+    }
+
+    private Specification<Invoice> buildSpec(
+            UUID userId,
+            InvoiceDirection direction,
+            String search,
+            InvoiceStatus status,
+            String rodzajFaktury,
+            LocalDate issueDateFrom,
+            LocalDate issueDateTo) {
+
+        return (root, query, cb) -> {
+            List<Predicate> predicates = new ArrayList<>();
+
+            // Zawsze filtruj po użytkowniku
+            predicates.add(cb.equal(root.get("userId"), userId));
+
+            if (direction != null) {
+                predicates.add(cb.equal(root.get("direction"), direction));
+            }
+
+            if (status != null) {
+                predicates.add(cb.equal(root.get("status"), status));
+            }
+
+            if (rodzajFaktury != null && !rodzajFaktury.isBlank()) {
+                predicates.add(cb.equal(root.get("rodzajFaktury"), rodzajFaktury));
+            }
+
+            if (issueDateFrom != null) {
+                predicates.add(cb.greaterThanOrEqualTo(root.get("issueDate"), issueDateFrom));
+            }
+
+            if (issueDateTo != null) {
+                predicates.add(cb.lessThanOrEqualTo(root.get("issueDate"), issueDateTo));
+            }
+
+            if (search != null && !search.isBlank()) {
+                String pattern = "%" + search.toLowerCase() + "%";
+                predicates.add(cb.or(
+                        cb.like(cb.lower(root.get("invoiceNumber")), pattern),
+                        cb.like(cb.lower(root.get("sellerName")),    pattern),
+                        cb.like(cb.lower(root.get("sellerNip")),     pattern),
+                        cb.like(cb.lower(root.get("buyerName")),     pattern),
+                        cb.like(cb.lower(root.get("buyerNip")),      pattern)
+                ));
+            }
+
+            return cb.and(predicates.toArray(Predicate[]::new));
+        };
     }
 
     public InvoiceDto.Response getById(UUID id, UUID userId) {

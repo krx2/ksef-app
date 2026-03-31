@@ -332,12 +332,58 @@ public class KsefDto {
 
     @Data
     public static class QueryMetadataRequest {
-        /** "Subject1" = wystawca, "Subject2" = nabywca, "Subject3" = podmiot trzeci. */
+        /** "Subject1" = wystawca, "Subject2" = nabywca, "Subject3" = podmiot trzeci, "SubjectAuthorized" = podmiot upoważniony. */
         @JsonProperty("subjectType")
         private String subjectType = "Subject2";
 
         @JsonProperty("dateRange")
         private DateRange dateRange;
+
+        // ---- Filtry opcjonalne ----
+
+        /** Dokładny numer KSeF faktury. */
+        @JsonProperty("ksefNumber")
+        private String ksefNumber;
+
+        /** Dokładny numer faktury nadany przez wystawcę (max 256 znaków). */
+        @JsonProperty("invoiceNumber")
+        private String invoiceNumber;
+
+        /** Filtr kwotowy (netto / brutto / VAT). */
+        @JsonProperty("amount")
+        private Amount amount;
+
+        /** NIP sprzedawcy (dokładne dopasowanie). */
+        @JsonProperty("sellerNip")
+        private String sellerNip;
+
+        /** Identyfikator nabywcy (dokładne dopasowanie). */
+        @JsonProperty("buyerIdentifier")
+        private BuyerIdentifier buyerIdentifier;
+
+        /** Lista kodów walut ISO 4217 (np. ["PLN", "EUR"]). */
+        @JsonProperty("currencyCodes")
+        private List<String> currencyCodes;
+
+        /** "Online" | "Offline". */
+        @JsonProperty("invoicingMode")
+        private String invoicingMode;
+
+        /** Czy faktura w trybie samofakturowania. */
+        @JsonProperty("isSelfInvoicing")
+        private Boolean isSelfInvoicing;
+
+        /** "FA" | "PEF" | "RR" | "FA_RR". */
+        @JsonProperty("formType")
+        private String formType;
+
+        /** Lista rodzajów faktur ("Vat", "Kor", "Zal", "Roz", "Upr", ...). */
+        @JsonProperty("invoiceTypes")
+        private List<String> invoiceTypes;
+
+        /** Czy faktura posiada załącznik. */
+        @JsonProperty("hasAttachment")
+        private Boolean hasAttachment;
 
         @Data
         public static class DateRange {
@@ -350,6 +396,33 @@ public class KsefDto {
 
             @JsonProperty("to")
             private String to;
+
+            /** Ograniczenie filtrowania do daty permanentStorageHwmDate. */
+            @JsonProperty("restrictToPermanentStorageHwmDate")
+            private Boolean restrictToPermanentStorageHwmDate;
+        }
+
+        @Data
+        public static class Amount {
+            /** "Netto" | "Brutto" | "Vat". */
+            @JsonProperty("type")
+            private String type;
+
+            @JsonProperty("from")
+            private Double from;
+
+            @JsonProperty("to")
+            private Double to;
+        }
+
+        @Data
+        public static class BuyerIdentifier {
+            /** "Nip" | "VatUe" | "Other" | "None". */
+            @JsonProperty("type")
+            private String type;
+
+            @JsonProperty("value")
+            private String value;
         }
     }
 
@@ -383,23 +456,101 @@ public class KsefDto {
             @JsonProperty("invoicingDate")
             private String invoicingDate;
 
+            /** Data nadania numeru KSeF (date-time ISO-8601). */
+            @JsonProperty("acquisitionDate")
+            private String acquisitionDate;
+
             @JsonProperty("permanentStorageDate")
             private String permanentStorageDate;
 
-            @JsonProperty("net")
-            private String net;
+            @JsonProperty("seller")
+            private Seller seller;
 
-            @JsonProperty("vat")
-            private String vat;
+            @JsonProperty("buyer")
+            private Buyer buyer;
 
-            @JsonProperty("gross")
-            private String gross;
+            /** Łączna kwota netto. */
+            @JsonProperty("netAmount")
+            private Double netAmount;
+
+            /** Łączna kwota VAT wyrażona w PLN. */
+            @JsonProperty("vatAmount")
+            private Double vatAmount;
+
+            /** Łączna kwota brutto. */
+            @JsonProperty("grossAmount")
+            private Double grossAmount;
 
             @JsonProperty("currency")
             private String currency;
 
+            /** "Online" | "Offline". */
+            @JsonProperty("invoicingMode")
+            private String invoicingMode;
+
+            /** "Vat" | "Zal" | "Kor" | "Roz" | "Upr" | "KorZal" | "KorRoz" | "VatPef" | "VatPefSp" | "KorPef" | "VatRr" | "KorVatRr". */
+            @JsonProperty("invoiceType")
+            private String invoiceType;
+
+            @JsonProperty("formCode")
+            private FormCode formCode;
+
+            @JsonProperty("isSelfInvoicing")
+            private boolean selfInvoicing;
+
+            @JsonProperty("hasAttachment")
+            private boolean hasAttachment;
+
             @JsonProperty("invoiceHash")
             private String invoiceHash;
+
+            /** Skrót SHA256 korygowanej faktury — wypełniony tylko dla faktur korygujących. */
+            @JsonProperty("hashOfCorrectedInvoice")
+            private String hashOfCorrectedInvoice;
+
+            @Data
+            @JsonIgnoreProperties(ignoreUnknown = true)
+            public static class Seller {
+                @JsonProperty("nip")
+                private String nip;
+
+                @JsonProperty("name")
+                private String name;
+            }
+
+            @Data
+            @JsonIgnoreProperties(ignoreUnknown = true)
+            public static class Buyer {
+                @JsonProperty("identifier")
+                private BuyerIdentifier identifier;
+
+                @JsonProperty("name")
+                private String name;
+
+                @Data
+                @JsonIgnoreProperties(ignoreUnknown = true)
+                public static class BuyerIdentifier {
+                    /** "Nip" | "VatUe" | "Other" | "None". */
+                    @JsonProperty("type")
+                    private String type;
+
+                    @JsonProperty("value")
+                    private String value;
+                }
+            }
+
+            @Data
+            @JsonIgnoreProperties(ignoreUnknown = true)
+            public static class FormCode {
+                @JsonProperty("systemCode")
+                private String systemCode;
+
+                @JsonProperty("schemaVersion")
+                private String schemaVersion;
+
+                @JsonProperty("value")
+                private String value;
+            }
         }
     }
 

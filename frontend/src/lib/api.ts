@@ -1,5 +1,5 @@
 import axios, { AxiosError } from 'axios';
-import type { Invoice, InvoiceDirection, PageResponse, XlsxConfig, AppUser } from '@/types';
+import type { Invoice, InvoiceFilters, PageResponse, XlsxConfig, AppUser } from '@/types';
 
 // X-User-Id jako nagłówek bez JWT to wyłącznie mechanizm deweloperski — użytkownik
 // może go podmienić w DevTools i działać jako inny użytkownik.
@@ -56,10 +56,10 @@ function validateXlsxFile(file: File) {
 // ---- Invoices ----
 
 export const invoicesApi = {
-  list: (userId: string, params?: { direction?: InvoiceDirection; page?: number; size?: number }) =>
+  list: (userId: string, filters?: InvoiceFilters) =>
     api.get<PageResponse<Invoice>>('/invoices', {
       ...withUser(userId),
-      params,
+      params: filters,
     }).then(r => r.data),
 
   get: (userId: string, id: string) =>

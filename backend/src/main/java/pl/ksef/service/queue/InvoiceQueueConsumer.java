@@ -29,6 +29,7 @@ import java.time.format.DateTimeFormatter;
 public class InvoiceQueueConsumer {
 
     private static final int MAX_INVOICE_POLL_ATTEMPTS = 15;
+    private static final int FETCH_PAGE_SIZE = 100;
     private static final long INVOICE_POLL_INTERVAL_MS = 2_000L;
 
     private final InvoiceRepository invoiceRepository;
@@ -155,50 +156,60 @@ public class InvoiceQueueConsumer {
             dateRange.setTo(message.getDateTo().toString());
             request.setDateRange(dateRange);
 
-            KsefDto.QueryMetadataResponse result = ksefApiClient.queryInvoices(accessToken, request);
-
-            if (result == null || result.getInvoices() == null || result.getInvoices().isEmpty()) {
-                log.info("Brak faktur do pobrania dla użytkownika {}", user.getId());
-                return;
-            }
-
-            log.info("Znaleziono {} faktur w KSeF dla użytkownika {}",
-                    result.getInvoices().size(), user.getId());
-
             int saved = 0;
             int skipped = 0;
             int errors = 0;
+            int pageOffset = 0;
 
-            for (KsefDto.QueryMetadataResponse.InvoiceMetadata meta : result.getInvoices()) {
-                // 1. Sprawdź duplikat po numerze KSeF
-                if (invoiceRepository.findByKsefNumber(meta.getKsefNumber()).isPresent()) {
-                    log.debug("Faktura {} już istnieje w bazie, pomijam", meta.getKsefNumber());
-                    skipped++;
-                    continue;
+            boolean hasMore;
+            do {
+                KsefDto.QueryMetadataResponse result = ksefApiClient.queryInvoices(
+                        accessToken, request, pageOffset, FETCH_PAGE_SIZE, "Asc");
+
+                if (result.getInvoices() == null || result.getInvoices().isEmpty()) {
+                    log.info("Brak faktur do pobrania dla użytkownika {} (offset={})",
+                            user.getId(), pageOffset);
+                    break;
                 }
 
-                try {
-                    // 2. Pobierz pełną treść faktury z KSeF
-                    String xml = ksefApiClient.getInvoiceContent(accessToken, meta.getKsefNumber());
+                log.info("Strona offset={}: {} faktur w KSeF dla użytkownika {}",
+                        pageOffset, result.getInvoices().size(), user.getId());
 
-                    // 3. Parsuj XML FA(3) → encja Invoice
-                    Invoice invoice = fa3XmlParser.parse(xml, user.getId());
+                for (KsefDto.QueryMetadataResponse.InvoiceMetadata meta : result.getInvoices()) {
+                    // 1. Sprawdź duplikat po numerze KSeF
+                    if (invoiceRepository.findByKsefNumber(meta.getKsefNumber()).isPresent()) {
+                        log.debug("Faktura {} już istnieje w bazie, pomijam", meta.getKsefNumber());
+                        skipped++;
+                        continue;
+                    }
 
-                    // 4. Uzupełnij numer KSeF i zapisz oryginalny XML
-                    invoice.setKsefNumber(meta.getKsefNumber());
-                    invoice.setFa2Xml(xml);
+                    try {
+                        // 2. Pobierz pełną treść faktury z KSeF
+                        String xml = ksefApiClient.getInvoiceContent(accessToken, meta.getKsefNumber());
 
-                    // 5. Zapisz do bazy (status=RECEIVED_FROM_KSEF, source=KSEF ustawione przez parser)
-                    invoiceRepository.save(invoice);
-                    saved++;
-                    log.debug("Zapisano fakturę ksefNumber={}", meta.getKsefNumber());
+                        // 3. Parsuj XML FA(3) → encja Invoice
+                        Invoice invoice = fa3XmlParser.parse(xml, user.getId());
 
-                } catch (Exception e) {
-                    log.error("Błąd przetwarzania faktury ksefNumber={}: {}",
-                            meta.getKsefNumber(), e.getMessage(), e);
-                    errors++;
+                        // 4. Uzupełnij numer KSeF i zapisz oryginalny XML
+                        invoice.setKsefNumber(meta.getKsefNumber());
+                        invoice.setFa2Xml(xml);
+
+                        // 5. Zapisz do bazy (status=RECEIVED_FROM_KSEF, source=KSEF ustawione przez parser)
+                        invoiceRepository.save(invoice);
+                        saved++;
+                        log.debug("Zapisano fakturę ksefNumber={}", meta.getKsefNumber());
+
+                    } catch (Exception e) {
+                        log.error("Błąd przetwarzania faktury ksefNumber={}: {}",
+                                meta.getKsefNumber(), e.getMessage(), e);
+                        errors++;
+                    }
                 }
-            }
+
+                hasMore = result.isHasMore();
+                pageOffset += result.getInvoices().size();
+
+            } while (hasMore);
 
             log.info("Pobieranie zakończone dla userId={}: zapisano={}, pominięto={}, błędy={}",
                     user.getId(), saved, skipped, errors);

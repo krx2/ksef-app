@@ -105,6 +105,9 @@ function buildEmptyFields(user?: { companyName?: string; nip?: string }) {
     samofakturowanie: false,
     odwrotneObciazenie: false,
     mechanizmPodzielonejPlatnosci: false,
+    zwolnieniePodatkowe: '',
+    jst: false,
+    gv: false,
   };
 }
 
@@ -170,6 +173,8 @@ export default function InvoiceFormPage() {
     try {
       await invoicesApi.createFromForm(userId, {
         ...fields,
+        // Wyślij zwolnieniePodatkowe tylko gdy jest niepuste
+        zwolnieniePodatkowe: fields.zwolnieniePodatkowe.trim() || undefined,
         items: items.map(it => ({
           name: it.name,
           unit: it.unit || undefined,
@@ -277,6 +282,8 @@ export default function InvoiceFormPage() {
               ['samofakturowanie',          'Samofakturowanie (P_17)'],
               ['odwrotneObciazenie',        'Odwrotne obciążenie (P_18)'],
               ['mechanizmPodzielonejPlatnosci', 'Mechanizm podzielonej płatności (P_18A)'],
+              ['jst',                       'Jednostka podrzędna JST'],
+              ['gv',                        'Członek grupy VAT (GV)'],
             ] as [keyof typeof fields, string][]).map(([key, label]) => (
               <label key={key} className="flex items-center gap-1.5 cursor-pointer">
                 <input type="checkbox"
@@ -287,6 +294,24 @@ export default function InvoiceFormPage() {
             ))}
           </div>
         </div>
+
+        {/* Podstawa zwolnienia z VAT — widoczna gdy co najmniej jedna pozycja ma kod "zw" */}
+        {items.some(it => it.vatRateCode === 'zw') && (
+          <div>
+            <label className="label">
+              Podstawa zwolnienia z VAT (P_19) *
+              <span className="ml-1 text-xs text-gray-400 font-normal">
+                — wymagana gdy pozycja ma stawkę&nbsp;<em>zw</em>
+              </span>
+            </label>
+            <input
+              className="input"
+              placeholder='np. "art. 43 ust. 1 pkt 1 ustawy"'
+              value={fields.zwolnieniePodatkowe}
+              onChange={e => setField('zwolnieniePodatkowe', e.target.value)}
+            />
+          </div>
+        )}
       </div>
 
       {/* Sprzedawca / Nabywca */}
