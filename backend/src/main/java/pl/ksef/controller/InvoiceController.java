@@ -7,6 +7,7 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 import pl.ksef.dto.InvoiceDto;
 import pl.ksef.entity.Invoice.InvoiceDirection;
+import pl.ksef.entity.Invoice.InvoiceSource;
 import pl.ksef.service.InvoiceService;
 import pl.ksef.service.XlsxConfigService;
 import pl.ksef.service.XlsxParserService;
@@ -63,20 +64,9 @@ public class InvoiceController {
             @RequestParam("configId") UUID configId) throws Exception {
 
         var config = xlsxConfigService.getById(configId, userId);
-        // Convert DTO back to entity-like for parser
-        pl.ksef.entity.XlsxConfiguration configEntity = new pl.ksef.entity.XlsxConfiguration();
-        configEntity.setFieldMappings(config.getFieldMappings());
-
-        InvoiceDto.CreateRequest req = xlsxParserService.parseWithConfig(file, configEntity);
-        req.setInvoiceNumber(req.getInvoiceNumber()); // already set from xlsx
-        var invoice = invoiceService.createAndQueue(userId, req);
-        var resp = invoiceService.toResponse(invoice);
-        // TODO: Source jest nadpisywane po zapisie do bazy — encja w DB zawsze ma source=FORM
-        //       (wartość domyślna z buildInvoice), a tylko odpowiedź HTTP ma source=XLSX.
-        //       Należy przekazać InvoiceSource jako parametr do InvoiceService.createAndQueue()
-        //       lub ustawić go w buildInvoice na podstawie pola w CreateRequest.
-        resp.setSource(pl.ksef.entity.Invoice.InvoiceSource.XLSX);
-        return ResponseEntity.ok(resp);
+        InvoiceDto.CreateRequest req = xlsxParserService.parseWithConfig(file, config.getFieldMappings());
+        var invoice = invoiceService.createAndQueue(userId, req, InvoiceSource.XLSX);
+        return ResponseEntity.ok(invoiceService.toResponse(invoice));
     }
 
     /** Preview XLSX parse result without creating invoice */
@@ -87,8 +77,6 @@ public class InvoiceController {
             @RequestParam("configId") UUID configId) throws Exception {
 
         var config = xlsxConfigService.getById(configId, userId);
-        pl.ksef.entity.XlsxConfiguration configEntity = new pl.ksef.entity.XlsxConfiguration();
-        configEntity.setFieldMappings(config.getFieldMappings());
-        return ResponseEntity.ok(xlsxParserService.previewFields(file, configEntity.getFieldMappings()));
+        return ResponseEntity.ok(xlsxParserService.previewFields(file, config.getFieldMappings()));
     }
 }

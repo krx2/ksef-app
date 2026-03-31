@@ -15,7 +15,6 @@ public class RabbitMQConfig {
     public static final String INVOICE_SEND_QUEUE    = "invoice.send.queue";
     public static final String INVOICE_SEND_DLQ      = "invoice.send.dlq";
     public static final String INVOICE_SEND_EXCHANGE  = "invoice.send.exchange";
-    public static final String INVOICE_RESULT_QUEUE  = "invoice.result.queue";
     public static final String INVOICE_FETCH_QUEUE   = "invoice.fetch.queue";
 
     @Bean
@@ -35,15 +34,6 @@ public class RabbitMQConfig {
         //       - Ustawia fakturze status FAILED z komunikatem "Przekroczono limit prób wysyłki".
         //       - Opcjonalnie: wysyła powiadomienie email/Slack do administratora.
         return QueueBuilder.durable(INVOICE_SEND_DLQ).build();
-    }
-
-    @Bean
-    public Queue invoiceResultQueue() {
-        // TODO: invoice.result.queue jest zadeklarowana, ale nie ma ani producenta ani konsumenta.
-        //       Jeśli nie jest używana, usunąć aby nie zaśmiecać konfiguracji RabbitMQ.
-        //       Jeśli planowano jej użycie (np. do asynchronicznych wyników wysyłki),
-        //       dodać odpowiedni publisher i consumer.
-        return QueueBuilder.durable(INVOICE_RESULT_QUEUE).build();
     }
 
     @Bean

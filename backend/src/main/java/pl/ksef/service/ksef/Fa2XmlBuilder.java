@@ -171,9 +171,9 @@ public class Fa2XmlBuilder {
                 case "9"   -> sb.append("    <P_13_9>").append(net).append("</P_13_9>\n");
                 case "10"  -> sb.append("    <P_13_10>").append(net).append("</P_13_10>\n");
                 case "11"  -> sb.append("    <P_13_11>").append(net).append("</P_13_11>\n");
-                // TODO: Nieznany bucket (np. z nowego kodu stawki) jest cicho ignorowany — XML
-                //       zostanie wygenerowany bez elementu sumy VAT, co spowoduje odrzucenie przez KSeF.
-                //       Dodać: default -> throw new IllegalStateException("Nieznany bucket VAT: " + bucket);
+                default    -> throw new IllegalStateException(
+                        "Nieznany bucket VAT: '" + bucket + "' dla kodu stawki. "
+                        + "Zaktualizuj vatCodeToBucket() o nowy kod FA(3).");
             }
         }
     }

@@ -5,6 +5,7 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 import lombok.Data;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import pl.ksef.entity.AppUser;
@@ -32,12 +33,9 @@ public class UserController {
 
     @PostMapping
     public ResponseEntity<UserResponse> create(@Valid @RequestBody CreateUserRequest req) {
-        // TODO: Brak sprawdzenia unikalności emaila przed zapisem.
-        //       Kolumna users.email ma constraint UNIQUE w bazie, więc duplikat wywoła
-        //       DataIntegrityViolationException (HTTP 500), a nie czytelny błąd walidacji.
-        //       Należy dodać: if (userRepository.existsByEmail(req.getEmail())) throw new IllegalArgumentException(...)
-        //       oraz metodę existsByEmail w UserRepository.
-
+        if (userRepository.existsByEmail(req.getEmail())) {
+            throw new IllegalArgumentException("Użytkownik z adresem e-mail '" + req.getEmail() + "' już istnieje");
+        }
         // TODO: Token KSeF jest przechowywany w bazie jako czysty tekst (plaintext).
         //       W środowisku produkcyjnym należy zaszyfrować go przed zapisem
         //       (np. JPA AttributeConverter z AES-256 lub integracja z HashiCorp Vault / AWS KMS).
@@ -54,14 +52,12 @@ public class UserController {
     public ResponseEntity<Void> updateToken(
             @PathVariable UUID id,
             @RequestBody UpdateTokenRequest req) {
-        // TODO: Gdy użytkownik o danym {id} nie istnieje, metoda zwraca 204 No Content zamiast 404.
-        //       ifPresent() cicho ignoruje nieistniejący zasób. Zmienić na findById(...).orElseThrow().
         // TODO: Brak autoryzacji — każdy może zmienić token dowolnego użytkownika podając jego UUID.
         //       Po wprowadzeniu JWT dodać weryfikację, że X-User-Id == {id}.
-        userRepository.findById(id).ifPresent(u -> {
-            u.setKsefToken(req.getKsefToken());
-            userRepository.save(u);
-        });
+        AppUser user = userRepository.findById(id)
+                .orElseThrow(() -> new pl.ksef.exception.ResourceNotFoundException("User not found: " + id));
+        user.setKsefToken(req.getKsefToken());
+        userRepository.save(user);
         return ResponseEntity.noContent().build();
     }
 

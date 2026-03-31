@@ -9,15 +9,16 @@ import org.springframework.transaction.annotation.Transactional;
 import pl.ksef.dto.InvoiceDto;
 import pl.ksef.entity.Invoice;
 import pl.ksef.entity.Invoice.InvoiceDirection;
+import pl.ksef.entity.Invoice.InvoiceSource;
 import pl.ksef.entity.InvoiceItem;
+import pl.ksef.exception.ResourceNotFoundException;
 import pl.ksef.repository.InvoiceRepository;
-import pl.ksef.service.ksef.Fa2XmlBuilder;
 import pl.ksef.service.ksef.Fa3Validator;
 import pl.ksef.service.queue.InvoiceQueuePublisher;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
-import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 @Service
@@ -25,52 +26,52 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class InvoiceService {
 
+    /**
+     * Kody stawki VAT, które nie powodują naliczenia podatku (zwolnienie/odwrotne obciążenie/NP).
+     * Pozostałe kody (w tym numeryczne "23", "8", "5" etc.) naliczają VAT wg vatRate.
+     */
+    private static final Set<String> NON_MONETARY_CODES = Set.of("zw", "oo", "np I", "np II");
+
     private final InvoiceRepository invoiceRepository;
     private final InvoiceQueuePublisher queuePublisher;
     private final Fa3Validator fa3Validator;
-    private final Fa2XmlBuilder fa2XmlBuilder;
 
     /**
-     * Waliduje dane FA(3), tworzy fakturę, generuje XML FA(3) i zapisuje w DB.
-     * KSeF jest zamockowany — nie wysyłamy do kolejki ani do API KSeF.
-     * Wygenerowany XML (który w produkcji byłby body POST do KSeF) jest przechowywany
-     * w polu fa2Xml razem ze statusem QUEUED.
+     * Shortcut dla faktury wystawionej przez formularz (source=FORM).
      */
     @Transactional
     public Invoice createAndQueue(UUID userId, InvoiceDto.CreateRequest req) {
+        return createAndQueue(userId, req, InvoiceSource.FORM);
+    }
+
+    /**
+     * Waliduje dane FA(3), tworzy fakturę z podanym źródłem, zapisuje w DB
+     * i publikuje wiadomość do kolejki RabbitMQ w celu wysyłki do KSeF.
+     */
+    @Transactional
+    public Invoice createAndQueue(UUID userId, InvoiceDto.CreateRequest req, InvoiceSource source) {
         fa3Validator.validate(req);
 
-        Invoice invoice = buildInvoice(userId, req);
-        invoice = invoiceRepository.save(invoice);
-
-        // Generuj XML FA(3) i zapisz w DB (mock KSeF)
-        String fa3Xml = fa2XmlBuilder.build(invoice);
-        invoice.setFa2Xml(fa3Xml);
+        Invoice invoice = buildInvoice(userId, req, source);
         invoice.setStatus(Invoice.InvoiceStatus.QUEUED);
         invoice = invoiceRepository.save(invoice);
 
-        // TODO: Odkomentować po uruchomieniu RabbitMQ i skonfigurowaniu tokenu KSeF.
-        //       Aktualnie faktura trafia do statusu QUEUED, ale wiadomość NIE jest
-        //       publikowana do kolejki — InvoiceQueueConsumer nigdy jej nie odbierze.
-        //       Należy zastąpić poniższy log wywołaniem:
-        //           queuePublisher.publishSendInvoice(invoice.getId(), userId);
-        //       a następnie usunąć mock-owy blok generowania XML powyżej
-        //       (XML zostanie wygenerowany przez InvoiceQueueConsumer tuż przed wysyłką).
-        log.info("Invoice {} — FA(3) XML wygenerowany i zapisany (mock KSeF)", invoice.getId());
+        queuePublisher.publishSendInvoice(invoice.getId(), userId);
+        log.info("Invoice {} (source={}) queued for KSeF send", invoice.getId(), source);
         return invoice;
     }
 
     /**
      * Tworzy szkic faktury bez walidacji FA(3) i kolejkowania.
+     * TODO: Ta metoda nie jest wywoływana przez żaden kontroler — brak endpointu POST /invoices/draft.
+     *       Jeśli funkcjonalność "zapisz szkic i wyślij później" ma być dostępna, trzeba:
+     *       1. Dodać endpoint POST /invoices/draft w InvoiceController.
+     *       2. Dodać endpoint POST /invoices/{id}/send (zmiana statusu DRAFT → QUEUED + publikacja do MQ).
+     *       3. W UI dodać przycisk "Zapisz szkic" obok "Wyślij do KSeF".
      */
     @Transactional
     public Invoice createDraft(UUID userId, InvoiceDto.CreateRequest req) {
-        // TODO: Ta metoda nie jest wywoływana przez żaden kontroler — brak endpointu POST /invoices/draft.
-        //       Jeśli funkcjonalność "zapisz szkic i wyślij później" ma być dostępna, trzeba:
-        //       1. Dodać endpoint POST /invoices/draft w InvoiceController.
-        //       2. Dodać endpoint POST /invoices/{id}/send (zmiana statusu DRAFT → QUEUED + publikacja do MQ).
-        //       3. W UI dodać przycisk "Zapisz szkic" obok "Wyślij do KSeF".
-        Invoice invoice = buildInvoice(userId, req);
+        Invoice invoice = buildInvoice(userId, req, InvoiceSource.FORM);
         return invoiceRepository.save(invoice);
     }
 
@@ -94,22 +95,18 @@ public class InvoiceService {
     public InvoiceDto.Response getById(UUID id, UUID userId) {
         Invoice invoice = invoiceRepository.findById(id)
                 .filter(i -> i.getUserId().equals(userId))
-                // TODO: Rzucenie RuntimeException powoduje, że GlobalExceptionHandler zwraca HTTP 400.
-                //       Należy stworzyć dedykowany ResourceNotFoundException (extends RuntimeException)
-                //       i dodać handler @ExceptionHandler(ResourceNotFoundException.class) → HTTP 404.
-                //       Dotyczy też analogicznych miejsc w XlsxConfigService i UserController.
-                .orElseThrow(() -> new RuntimeException("Invoice not found"));
+                .orElseThrow(() -> new ResourceNotFoundException("Invoice not found: " + id));
         return toResponse(invoice);
     }
 
     // ---- private ----
 
-    private Invoice buildInvoice(UUID userId, InvoiceDto.CreateRequest req) {
+    private Invoice buildInvoice(UUID userId, InvoiceDto.CreateRequest req, InvoiceSource source) {
         Invoice invoice = Invoice.builder()
                 .userId(userId)
                 .direction(InvoiceDirection.ISSUED)
                 .status(Invoice.InvoiceStatus.DRAFT)
-                .source(Invoice.InvoiceSource.FORM)
+                .source(source)
                 .invoiceNumber(req.getInvoiceNumber())
                 .issueDate(req.getIssueDate())
                 .saleDate(req.getSaleDate())
@@ -138,20 +135,15 @@ public class InvoiceService {
                     .multiply(itemReq.getQuantity())
                     .setScale(2, RoundingMode.HALF_UP);
 
-            // Dla stawek bez podatku (zw, oo, np I, np II, 0%) VAT = 0
-            BigDecimal vat = BigDecimal.ZERO;
             String rateCode = itemReq.getVatRateCode();
-            if (rateCode == null || rateCode.isBlank()) {
+            BigDecimal vat = BigDecimal.ZERO;
+            // VAT naliczamy zawsze, chyba że kod stawki to kod niepieniężny (zw/oo/np I/np II).
+            // Kody zerowe (0 KR, 0 WDT, 0 EX) i numeryczne ("23", "8", "5") korzystają z vatRate.
+            boolean isNonMonetary = rateCode != null && NON_MONETARY_CODES.contains(rateCode);
+            if (!isNonMonetary && itemReq.getVatRate() != null) {
                 vat = net.multiply(itemReq.getVatRate())
                          .divide(BigDecimal.valueOf(100), 2, RoundingMode.HALF_UP);
             }
-            // TODO: Błąd obliczania VAT dla numerycznych vatRateCodes (np. "23", "8", "5").
-            //       Gdy vatRateCode = "23", powyższy warunek jest spełniony (kod niepusty)
-            //       i VAT pozostaje 0, zamiast wyliczyć 23% od net.
-            //       Poprawka: sprawdzić czy rateCode należy do Fa3Validator.VALID_VAT_RATE_CODES
-            //       i czy da się go sparsować jako liczbę — jeśli tak, użyć tej wartości do obliczeń.
-            //       Zbiór kodów niepieniężnych: {"zw","oo","np I","np II","0 KR","0 WDT","0 EX"}.
-            // Jeśli vatRateCode jest kodem niepieniężnym (zw/oo/np*), VAT pozostaje 0
 
             BigDecimal gross = net.add(vat);
 

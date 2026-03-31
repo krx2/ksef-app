@@ -3,19 +3,18 @@ package pl.ksef.service.ksef;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
 import pl.ksef.dto.KsefDto;
 
-import java.nio.charset.StandardCharsets;
-import java.util.Base64;
+import java.util.List;
 
 /**
- * Low-level client for KSeF test API (api-test.ksef.mf.gov.pl).
- * Auth flow: POST /api/online/Session/AuthorisationChallenge
- *            -> sign challenge with token -> POST /api/online/Session/InitToken
- *            -> use sessionToken for subsequent calls
+ * Klient HTTP dla KSeF API v2 (base URL: https://api-test.ksef.mf.gov.pl/v2).
+ * Odpowiada wyłącznie za wywołania HTTP — logika tokenów i szyfrowania
+ * jest w KsefTokenManager i KsefEncryptionService.
  */
 @Service
 @Slf4j
@@ -25,177 +24,271 @@ public class KsefApiClient {
     @Qualifier("ksefRestClient")
     private final RestClient restClient;
 
-    /**
-     * Step 1: Get authorisation challenge (timestamp from KSeF).
-     */
-    public String getAuthorisationChallenge(String nip) {
-        var body = """
-                {"contextIdentifier":{"type":"onip","identifier":"%s"}}
-                """.formatted(nip).trim();
+    // =====================================================================
+    // Certyfikaty klucza publicznego
+    // =====================================================================
 
-        var response = restClient.post()
-                .uri("/api/online/Session/AuthorisationChallenge")
-                .contentType(MediaType.APPLICATION_JSON)
-                .body(body)
+    /** GET /security/public-key-certificates — nie wymaga uwierzytelnienia. */
+    public List<KsefDto.PublicKeyCertificate> getPublicKeyCertificates() {
+        return restClient.get()
+                .uri("/security/public-key-certificates")
                 .retrieve()
-                .toEntity(String.class);
-
-        log.debug("AuthorisationChallenge response: {}", response.getBody());
-        // TODO: Parsowanie JSON jest ręczne (indexOf + substring) — kruche i podatne na błędy
-        //       przy zmianie formatu odpowiedzi KSeF. Należy zastąpić deserializacją Jacksona
-        //       przez zmapowanie na KsefDto.AuthChallengeResponse (dodać brakujące pole "challenge"
-        //       lub "timestamp" zależnie od aktualnej wersji API KSeF — sprawdzić dokumentację).
-        String raw = response.getBody();
-        if (raw == null) throw new KsefException("Empty challenge response");
-        // extract "timestamp":"2024-01-01T00:00:00.000Z"
-        int idx = raw.indexOf("\"timestamp\":");
-        if (idx < 0) throw new KsefException("No timestamp in challenge: " + raw);
-        String ts = raw.substring(idx + 13);
-        ts = ts.substring(0, ts.indexOf("\""));
-        return ts;
+                .body(new ParameterizedTypeReference<>() {});
     }
 
+    // =====================================================================
+    // Uwierzytelnienie — przepływ 5-krokowy
+    // =====================================================================
+
     /**
-     * Step 2: Init session with NIP + token.
-     * The token is XOR'd with the challenge timestamp (MF spec for authByToken).
-     * For test env the challenge is simply Base64(nip|timestamp|token).
+     * Krok 1: POST /auth/challenge — nie wymaga uwierzytelnienia.
+     * Zwraca challenge (string ID) i timestampMs (Unix ms) wymagane w kroku 2.
      */
-    public String initSession(String nip, String ksefToken, String challenge) {
-        // KSeF authByToken: authorisationToken = Base64(SHA-256(token + challenge))
-        // For test environment we use simplified token approach
-        String authorisationToken = buildAuthorisationToken(ksefToken, challenge);
-
-        var body = """
-                {
-                  "contextIdentifier": {"type": "onip", "identifier": "%s"},
-                  "authorisationToken": "%s"
-                }
-                """.formatted(nip, authorisationToken).trim();
-
-        var response = restClient.post()
-                .uri("/api/online/Session/InitToken")
+    public KsefDto.AuthChallengeResponse getChallenge() {
+        KsefDto.AuthChallengeResponse resp = restClient.post()
+                .uri("/auth/challenge")
                 .contentType(MediaType.APPLICATION_JSON)
-                .body(body)
+                .body("{}")
                 .retrieve()
-                .toEntity(KsefDto.InitSessionResponse.class);
+                .body(KsefDto.AuthChallengeResponse.class);
 
-        var sessionResp = response.getBody();
-        if (sessionResp == null || sessionResp.getSessionToken() == null) {
-            throw new KsefException("Failed to initialise KSeF session");
+        if (resp == null || resp.getChallenge() == null) {
+            throw new KsefException("Pusta odpowiedź z /auth/challenge");
         }
-        log.info("KSeF session initialised, ref: {}", sessionResp.getReferenceNumber());
-        return sessionResp.getSessionToken().getToken();
+        log.debug("Challenge: {}, timestampMs: {}", resp.getChallenge(), resp.getTimestampMs());
+        return resp;
     }
 
     /**
-     * Send a FA(2) invoice XML to KSeF.
-     * @return elementReferenceNumber for status polling
+     * Krok 2: POST /auth/ksef-token — nie wymaga uwierzytelnienia.
+     * @param challenge   Wartość challenge z kroku 1
+     * @param nip         NIP podmiotu
+     * @param encryptedToken Token KSeF zaszyfrowany RSA-OAEP (z KsefEncryptionService.encryptToken)
+     * @return  referenceNumber + authenticationToken (operation token, krótkotrwały)
      */
-    public String sendInvoice(String sessionToken, String fa2Xml) {
-        String encodedXml = Base64.getEncoder().encodeToString(fa2Xml.getBytes(StandardCharsets.UTF_8));
+    public KsefDto.AuthenticationInitResponse initTokenAuth(
+            String challenge, String nip, String encryptedToken) {
 
-        var body = """
-                {"invoiceHash":{"fileSize":%d,"hashSHA":{"algorithm":"SHA-256","encoding":"Base64","value":"%s"}},
-                 "invoicePayload":{"type":"plain","invoiceBody":"%s"}}
-                """.formatted(
-                fa2Xml.getBytes(StandardCharsets.UTF_8).length,
-                sha256Base64(fa2Xml),
-                encodedXml
-        ).trim();
-
-        var response = restClient.put()
-                .uri("/api/online/Invoice/Send")
-                .header("SessionToken", sessionToken)
+        KsefDto.InitTokenAuthRequest req = new KsefDto.InitTokenAuthRequest(challenge, nip, encryptedToken);
+        KsefDto.AuthenticationInitResponse resp = restClient.post()
+                .uri("/auth/ksef-token")
                 .contentType(MediaType.APPLICATION_JSON)
-                .body(body)
+                .body(req)
                 .retrieve()
-                .toEntity(KsefDto.SendInvoiceResponse.class);
+                .body(KsefDto.AuthenticationInitResponse.class);
 
-        var resp = response.getBody();
-        if (resp == null) throw new KsefException("Empty send invoice response");
-        log.info("Invoice sent, elementRef: {}", resp.getElementReferenceNumber());
-        return resp.getElementReferenceNumber();
+        if (resp == null || resp.getReferenceNumber() == null) {
+            throw new KsefException("Pusta odpowiedź z /auth/ksef-token");
+        }
+        log.info("Auth initiated, referenceNumber: {}", resp.getReferenceNumber());
+        return resp;
     }
 
     /**
-     * Poll invoice processing status by elementReferenceNumber.
+     * Krok 3: GET /auth/{referenceNumber} — używa operation tokena z kroku 2.
+     * Wywoływany wielokrotnie (polling) aż status.code == 200.
      */
-    public KsefDto.InvoiceStatusResponse getInvoiceStatus(String sessionToken, String elementReferenceNumber) {
-        var response = restClient.get()
-                .uri("/api/online/Invoice/Status/{ref}", elementReferenceNumber)
-                .header("SessionToken", sessionToken)
+    public KsefDto.AuthenticationOperationStatusResponse getAuthStatus(
+            String referenceNumber, String operationToken) {
+
+        KsefDto.AuthenticationOperationStatusResponse resp = restClient.get()
+                .uri("/auth/{ref}", referenceNumber)
+                .header("Authorization", "Bearer " + operationToken)
                 .retrieve()
-                .toEntity(KsefDto.InvoiceStatusResponse.class);
-        return response.getBody();
+                .body(KsefDto.AuthenticationOperationStatusResponse.class);
+
+        if (resp == null || resp.getStatus() == null) {
+            throw new KsefException("Pusta odpowiedź z /auth/" + referenceNumber);
+        }
+        return resp;
     }
 
     /**
-     * Query received invoices for this NIP.
+     * Krok 4: POST /auth/token/redeem — używa operation tokena z kroku 2.
+     * JEDNORAZOWE odebranie access + refresh tokenu — można wywołać tylko raz.
      */
-    public KsefDto.QueryInvoiceResponse queryReceivedInvoices(String sessionToken,
-                                                               String dateFrom,
-                                                               String dateTo) {
-        // TODO: Parametr subjectType="subject3" oznacza faktury wystawione NA nasz NIP
-        //       (nabywca = my). Sprawdzić czy to prawidłowe dla odebranych faktur
-        //       w aktualnej wersji API KSeF — dokumentacja rozróżnia subject1/subject2/subject3.
-        //       Daty dateFrom/dateTo muszą być w formacie ISO-8601 z timezone (np. "2024-01-01T00:00:00Z").
-        //       Aktualnie wywołujący (handleFetchInvoices) przekazuje je jako String bez walidacji formatu.
-        var body = """
-                {"queryCriteria":{"subjectType":"subject3","type":"incremental",
-                 "acquisitionTimestampThresholdFrom":"%s","acquisitionTimestampThresholdTo":"%s"}}
-                """.formatted(dateFrom, dateTo).trim();
+    public KsefDto.AuthenticationTokensResponse redeemTokens(String operationToken) {
+        KsefDto.AuthenticationTokensResponse resp = restClient.post()
+                .uri("/auth/token/redeem")
+                .header("Authorization", "Bearer " + operationToken)
+                .retrieve()
+                .body(KsefDto.AuthenticationTokensResponse.class);
 
-        var response = restClient.post()
-                .uri("/api/online/Query/Invoice/Sync")
-                .header("SessionToken", sessionToken)
+        if (resp == null || resp.getAccessToken() == null || resp.getRefreshToken() == null) {
+            throw new KsefException("Pusta odpowiedź z /auth/token/redeem");
+        }
+        log.info("Tokeny dostępowe odebrane, access ważny do: {}",
+                resp.getAccessToken().getValidUntil());
+        return resp;
+    }
+
+    /**
+     * Krok 5 (opcjonalny): POST /auth/token/refresh — używa refresh tokenu.
+     * Odświeża access token bez pełnego ponownego uwierzytelnienia.
+     */
+    public KsefDto.AuthenticationTokenRefreshResponse refreshAccessToken(String refreshToken) {
+        KsefDto.AuthenticationTokenRefreshResponse resp = restClient.post()
+                .uri("/auth/token/refresh")
+                .header("Authorization", "Bearer " + refreshToken)
+                .retrieve()
+                .body(KsefDto.AuthenticationTokenRefreshResponse.class);
+
+        if (resp == null || resp.getAccessToken() == null) {
+            throw new KsefException("Pusta odpowiedź z /auth/token/refresh");
+        }
+        log.info("Access token odświeżony, ważny do: {}", resp.getAccessToken().getValidUntil());
+        return resp;
+    }
+
+    // =====================================================================
+    // Sesja interaktywna
+    // =====================================================================
+
+    /**
+     * POST /sessions/online — otwiera sesję interaktywną.
+     * Wymagane przed każdą wysyłką faktury. Używa access tokena.
+     * @param accessToken JWT access token
+     * @param encryptedSymmetricKey Klucz AES zaszyfrowany RSA-OAEP kluczem MF, Base64
+     * @param initializationVector  IV dla AES-CBC, Base64
+     * @return referenceNumber sesji — wymagany w kolejnych wywołaniach
+     */
+    public KsefDto.OpenOnlineSessionResponse openOnlineSession(
+            String accessToken, String encryptedSymmetricKey, String initializationVector) {
+
+        KsefDto.OpenOnlineSessionRequest req =
+                new KsefDto.OpenOnlineSessionRequest(encryptedSymmetricKey, initializationVector);
+
+        KsefDto.OpenOnlineSessionResponse resp = restClient.post()
+                .uri("/sessions/online")
+                .header("Authorization", "Bearer " + accessToken)
                 .contentType(MediaType.APPLICATION_JSON)
-                .body(body)
+                .body(req)
                 .retrieve()
-                .toEntity(KsefDto.QueryInvoiceResponse.class);
-        return response.getBody();
+                .body(KsefDto.OpenOnlineSessionResponse.class);
+
+        if (resp == null || resp.getReferenceNumber() == null) {
+            throw new KsefException("Pusta odpowiedź z /sessions/online");
+        }
+        log.info("Sesja interaktywna otwarta: {}, ważna do: {}",
+                resp.getReferenceNumber(), resp.getValidUntil());
+        return resp;
     }
 
     /**
-     * Terminate session.
+     * POST /sessions/online/{sessionRef}/invoices — wysyła zaszyfrowaną fakturę.
+     * @param accessToken JWT access token
+     * @param sessionRef  referenceNumber sesji z openOnlineSession()
+     * @param data        Zaszyfrowane dane faktury z KsefEncryptionService.encryptInvoice()
+     * @return referenceNumber faktury — wymagany do pollingu statusu
      */
-    public void terminateSession(String sessionToken) {
+    public KsefDto.SendInvoiceResponse sendInvoice(
+            String accessToken, String sessionRef, EncryptedInvoiceData data) {
+
+        KsefDto.SendInvoiceRequest req = new KsefDto.SendInvoiceRequest();
+        req.setInvoiceHash(data.getInvoiceHash());
+        req.setInvoiceSize(data.getInvoiceSize());
+        req.setEncryptedInvoiceHash(data.getEncryptedInvoiceHash());
+        req.setEncryptedInvoiceSize(data.getEncryptedInvoiceSize());
+        req.setEncryptedInvoiceContent(data.getEncryptedInvoiceContent());
+        req.setOfflineMode(false);
+
+        KsefDto.SendInvoiceResponse resp = restClient.post()
+                .uri("/sessions/online/{ref}/invoices", sessionRef)
+                .header("Authorization", "Bearer " + accessToken)
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(req)
+                .retrieve()
+                .body(KsefDto.SendInvoiceResponse.class);
+
+        if (resp == null || resp.getReferenceNumber() == null) {
+            throw new KsefException("Pusta odpowiedź z /sessions/online/" + sessionRef + "/invoices");
+        }
+        log.info("Faktura wysłana do sesji {}, invoiceRef: {}", sessionRef, resp.getReferenceNumber());
+        return resp;
+    }
+
+    /**
+     * GET /sessions/{sessionRef}/invoices/{invoiceRef} — sprawdza status faktury w sesji.
+     * @param accessToken JWT access token
+     * @param sessionRef  referenceNumber sesji
+     * @param invoiceRef  referenceNumber faktury (z sendInvoice())
+     */
+    public KsefDto.SessionInvoiceStatusResponse getInvoiceStatus(
+            String accessToken, String sessionRef, String invoiceRef) {
+
+        KsefDto.SessionInvoiceStatusResponse resp = restClient.get()
+                .uri("/sessions/{sessionRef}/invoices/{invoiceRef}", sessionRef, invoiceRef)
+                .header("Authorization", "Bearer " + accessToken)
+                .retrieve()
+                .body(KsefDto.SessionInvoiceStatusResponse.class);
+
+        if (resp == null || resp.getStatus() == null) {
+            throw new KsefException("Pusta odpowiedź statusu faktury " + invoiceRef);
+        }
+        return resp;
+    }
+
+    /**
+     * POST /sessions/online/{sessionRef}/close — zamyka sesję interaktywną.
+     * Inicjuje generowanie zbiorczego UPO. Wywoływać zawsze w bloku finally.
+     */
+    public void closeSession(String accessToken, String sessionRef) {
         try {
-            restClient.get()
-                    .uri("/api/online/Session/Terminate")
-                    .header("SessionToken", sessionToken)
+            restClient.post()
+                    .uri("/sessions/online/{ref}/close", sessionRef)
+                    .header("Authorization", "Bearer " + accessToken)
                     .retrieve()
                     .toBodilessEntity();
-            log.info("KSeF session terminated");
+            log.info("Sesja interaktywna zamknięta: {}", sessionRef);
         } catch (Exception e) {
-            log.warn("Failed to terminate KSeF session: {}", e.getMessage());
+            log.warn("Nie udało się zamknąć sesji interaktywnej {}: {}", sessionRef, e.getMessage());
         }
     }
 
-    // ---- helpers ----
-
-    private String buildAuthorisationToken(String ksefToken, String challenge) {
-        // TODO: Implementacja tokenu jest uproszczona i NIE jest zgodna ze specyfikacją KSeF.
-        //       Specyfikacja MF (authByToken) wymaga:
-        //         1. Zdekodować token (Base64 → bajty).
-        //         2. Pobrać bajty challenge (UTF-8).
-        //         3. XOR bajt-po-bajcie: dla i < min(len(token), len(challenge)).
-        //         4. SHA-256 wyniku XOR.
-        //         5. Zakodować Base64 (Standard, bez padding lub z — sprawdzić docs).
-        //       Obecna implementacja Base64(token|challenge) działa WYŁĄCZNIE z mockiem
-        //       testowym który nie weryfikuje podpisu. Na środowisku produkcyjnym
-        //       lub pełnym środowisku testowym MF zwróci HTTP 401.
-        //       Referencja: https://www.podatki.gov.pl/ksef/dokumentacja-techniczna-ksef/
-        String combined = ksefToken + "|" + challenge;
-        return Base64.getEncoder().encodeToString(combined.getBytes(StandardCharsets.UTF_8));
-    }
-
-    private String sha256Base64(String input) {
+    /**
+     * DELETE /auth/sessions/current — unieważnia bieżącą sesję uwierzytelnienia.
+     * UWAGA: Wywołanie unieważnia refresh token. Wywoływać tylko przy wylogowaniu użytkownika,
+     * NIE po każdej fakturze. Access tokeny działają do wygaśnięcia (validUntil).
+     */
+    public void terminateAuthSession(String accessToken) {
         try {
-            var digest = java.security.MessageDigest.getInstance("SHA-256");
-            byte[] hash = digest.digest(input.getBytes(StandardCharsets.UTF_8));
-            return Base64.getEncoder().encodeToString(hash);
+            restClient.delete()
+                    .uri("/auth/sessions/current")
+                    .header("Authorization", "Bearer " + accessToken)
+                    .retrieve()
+                    .toBodilessEntity();
+            log.info("Sesja uwierzytelnienia unieważniona");
         } catch (Exception e) {
-            throw new KsefException("SHA-256 failed", e);
+            log.warn("Nie udało się unieważnić sesji auth: {}", e.getMessage());
         }
+    }
+
+    // =====================================================================
+    // Pobieranie faktur
+    // =====================================================================
+
+    /**
+     * POST /invoices/query/metadata — pobiera metadane faktur według kryteriów.
+     * Paginacja przez parametry pageOffset i pageSize (max 250 na stronę).
+     * @param accessToken JWT access token
+     * @param request     Kryteria wyszukiwania
+     */
+    public KsefDto.QueryMetadataResponse queryInvoices(
+            String accessToken, KsefDto.QueryMetadataRequest request) {
+
+        KsefDto.QueryMetadataResponse resp = restClient.post()
+                .uri("/invoices/query/metadata")
+                .header("Authorization", "Bearer " + accessToken)
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(request)
+                .retrieve()
+                .body(KsefDto.QueryMetadataResponse.class);
+
+        if (resp == null) {
+            throw new KsefException("Pusta odpowiedź z /invoices/query/metadata");
+        }
+        log.info("Pobrano metadane faktur: {} rekordów, hasMore={}",
+                resp.getInvoices() != null ? resp.getInvoices().size() : 0, resp.isHasMore());
+        return resp;
     }
 }

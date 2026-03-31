@@ -6,7 +6,6 @@ import org.apache.poi.ss.util.CellReference;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 import pl.ksef.dto.InvoiceDto;
-import pl.ksef.entity.XlsxConfiguration;
 import pl.ksef.entity.XlsxConfiguration.FieldMapping;
 
 import java.io.IOException;
@@ -23,10 +22,10 @@ public class XlsxParserService {
      * Returns a populated CreateRequest ready for invoice creation.
      */
     public InvoiceDto.CreateRequest parseWithConfig(MultipartFile file,
-                                                     XlsxConfiguration config) throws IOException {
+                                                     Map<String, FieldMapping> fieldMappings) throws IOException {
         try (Workbook workbook = openWorkbook(file)) {
             WorkbookView view = WorkbookView.of(workbook);
-            Map<String, String> resolved = resolveFields(view, config.getFieldMappings());
+            Map<String, String> resolved = resolveFields(view, fieldMappings);
             return buildCreateRequest(resolved);
         }
     }
