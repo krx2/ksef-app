@@ -5,7 +5,35 @@ import { useMutation } from '@tanstack/react-query';
 import { X, TestTube } from 'lucide-react';
 import { useUser } from '@/lib/user-context';
 import { xlsxConfigsApi } from '@/lib/api';
-import { INVOICE_FIELDS, type XlsxConfig, type FieldMapping } from '@/types';
+import {
+  INVOICE_FIELDS,
+  RODZAJ_FAKTURY_LABELS,
+  VAT_RATE_CODE_LABELS,
+  type RodzajFaktury,
+  type VatRateCode,
+  type XlsxConfig,
+  type FieldMapping,
+} from '@/types';
+
+const COMMON_CURRENCIES = ['PLN', 'EUR', 'USD', 'GBP', 'CHF', 'CZK', 'NOK', 'SEK', 'DKK', 'HUF'];
+
+/** Predefiniowane opcje dla pól, które w formularzu faktury mają dropdown. */
+const FIELD_OPTIONS: Record<string, { value: string; label: string }[]> = {
+  rodzajFaktury: (Object.keys(RODZAJ_FAKTURY_LABELS) as RodzajFaktury[]).map(k => ({
+    value: k,
+    label: RODZAJ_FAKTURY_LABELS[k],
+  })),
+  currency: COMMON_CURRENCIES.map(c => ({ value: c, label: c })),
+};
+
+// Stawki VAT — identyczne opcje dla każdej pozycji (item1_vatRate … item10_vatRate)
+const vatOptions = (Object.keys(VAT_RATE_CODE_LABELS) as VatRateCode[]).map(k => ({
+  value: k,
+  label: VAT_RATE_CODE_LABELS[k],
+}));
+for (let i = 1; i <= 10; i++) {
+  FIELD_OPTIONS[`item${i}_vatRate`] = vatOptions;
+}
 
 interface Props {
   config: XlsxConfig | null;
@@ -237,12 +265,25 @@ export default function XlsxConfigModal({ config, onClose, onSaved }: Props) {
                         </>
                       ) : (
                         <div className="col-span-7">
-                          <input
-                            className="input py-1 text-xs"
-                            placeholder="Wpisz stałą wartość…"
-                            value={mapping.value ?? ''}
-                            onChange={e => setMapping(field.key, { value: e.target.value })}
-                          />
+                          {FIELD_OPTIONS[field.key] ? (
+                            <select
+                              className="input py-1 text-xs"
+                              value={mapping.value ?? ''}
+                              onChange={e => setMapping(field.key, { value: e.target.value })}
+                            >
+                              <option value="">— wybierz —</option>
+                              {FIELD_OPTIONS[field.key].map(o => (
+                                <option key={o.value} value={o.value}>{o.label}</option>
+                              ))}
+                            </select>
+                          ) : (
+                            <input
+                              className="input py-1 text-xs"
+                              placeholder="Wpisz stałą wartość…"
+                              value={mapping.value ?? ''}
+                              onChange={e => setMapping(field.key, { value: e.target.value })}
+                            />
+                          )}
                         </div>
                       )}
                     </div>
