@@ -47,8 +47,6 @@ public class KsefApiClient {
     public KsefDto.AuthChallengeResponse getChallenge() {
         KsefDto.AuthChallengeResponse resp = restClient.post()
                 .uri("/auth/challenge")
-                .contentType(MediaType.APPLICATION_JSON)
-                .body("{}")
                 .retrieve()
                 .body(KsefDto.AuthChallengeResponse.class);
 
@@ -268,7 +266,7 @@ public class KsefApiClient {
     // =====================================================================
 
     /**
-     * POST /invoices/query/metadata — pobiera metadane faktur według kryteriów.
+     * POST /invoices/query/metadata — pobiera metadane faktur wg kryteriów.
      *
      * @param accessToken JWT access token
      * @param request     Kryteria wyszukiwania (filtry)
@@ -303,7 +301,7 @@ public class KsefApiClient {
     }
 
     /**
-     * GET /invoices/{ksefNumber}/content — pobiera surowy XML faktury FA(3).
+     * GET /invoices/ksef/{ksefNumber} — pobiera surowy XML faktury FA(3).
      *
      * @param accessToken JWT access token
      * @param ksefNumber  numer KSeF faktury (format: NIP-data-hash)
@@ -311,12 +309,12 @@ public class KsefApiClient {
      */
     public String getInvoiceContent(String accessToken, String ksefNumber) {
         String content = restClient.get()
-                .uri("/invoices/{ksefNumber}/content", ksefNumber)
+                .uri("/invoices/ksef/{ksefNumber}", ksefNumber)
                 .header("Authorization", "Bearer " + accessToken)
                 .retrieve()
                 .body(String.class);
         if (content == null || content.isBlank()) {
-            throw new KsefException("Pusta odpowiedź z /invoices/" + ksefNumber + "/content");
+            throw new KsefException("Pusta odpowiedź z /invoices/ksef/" + ksefNumber);
         }
         log.debug("Pobrano treść faktury ksefNumber={}, rozmiar={} B", ksefNumber, content.length());
         return content;

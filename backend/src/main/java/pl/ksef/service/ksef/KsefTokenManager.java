@@ -9,6 +9,7 @@ import pl.ksef.repository.UserRepository;
 
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 
 /**
  * Zarządza cyklem życia tokenów dostępowych KSeF v2 dla AppUser.
@@ -78,14 +79,14 @@ public class KsefTokenManager {
         return user.getKsefAccessToken() != null
                 && user.getKsefAccessTokenValidUntil() != null
                 && user.getKsefAccessTokenValidUntil()
-                        .isAfter(LocalDateTime.now().plusSeconds(BUFFER_SECONDS));
+                        .isAfter(LocalDateTime.now(ZoneOffset.UTC).plusSeconds(BUFFER_SECONDS));
     }
 
     private boolean isRefreshTokenValid(AppUser user) {
         return user.getKsefRefreshToken() != null
                 && user.getKsefRefreshTokenValidUntil() != null
                 && user.getKsefRefreshTokenValidUntil()
-                        .isAfter(LocalDateTime.now().plusSeconds(BUFFER_SECONDS));
+                        .isAfter(LocalDateTime.now(ZoneOffset.UTC).plusSeconds(BUFFER_SECONDS));
     }
 
     /**
@@ -196,16 +197,18 @@ public class KsefTokenManager {
     }
 
     /**
-     * Parsuje ISO-8601 datetime z timezone do LocalDateTime (UTC).
-     * Przykład wejścia: "2025-05-14T12:30:00+02:00"
+     * Parsuje ISO-8601 datetime z timezone do LocalDateTime w UTC.
+     * Przykład wejścia: "2025-05-14T12:30:00+02:00" → "2025-05-14T10:30:00" (UTC)
      */
     private LocalDateTime parseValidUntil(String validUntil) {
         try {
-            return OffsetDateTime.parse(validUntil).toLocalDateTime();
+            return OffsetDateTime.parse(validUntil)
+                    .withOffsetSameInstant(ZoneOffset.UTC)
+                    .toLocalDateTime();
         } catch (Exception e) {
             log.warn("Nie można sparsować validUntil '{}': {}", validUntil, e.getMessage());
             // Fallback: 1 godzina od teraz — token zostanie odświeżony przy następnym wywołaniu
-            return LocalDateTime.now().plusHours(1);
+            return LocalDateTime.now(ZoneOffset.UTC).plusHours(1);
         }
     }
 }
