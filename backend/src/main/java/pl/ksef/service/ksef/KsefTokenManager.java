@@ -164,7 +164,21 @@ public class KsefTokenManager {
     /**
      * Polling GET /auth/{referenceNumber} aż status.code == 200 (maks. 15 prób × 2s = 30s).
      *
-     * @throws KsefException jeśli status.code == 400 lub przekroczono limit prób
+     * <p>Kody końcowe wg specyfikacji API:
+     * <ul>
+     *   <li>100 — w toku, kontynuuj polling</li>
+     *   <li>200 — sukces</li>
+     *   <li>415 — brak przypisanych uprawnień</li>
+     *   <li>425 — uwierzytelnienie unieważnione przez użytkownika</li>
+     *   <li>450 — błędny token (nieprawidłowe wyzwanie / token / czas / unieważniony / nieaktywny)</li>
+     *   <li>460 — błąd certyfikatu</li>
+     *   <li>470 — próba użycia metod autoryzacyjnych osoby zmarłej</li>
+     *   <li>480 — uwierzytelnienie zablokowane (podejrzenie incydentu bezpieczeństwa)</li>
+     *   <li>500 — nieznany błąd</li>
+     *   <li>550 — operacja anulowana przez system (spróbuj ponownie)</li>
+     * </ul>
+     *
+     * @throws KsefException jeśli status jest finalnym błędem lub przekroczono limit prób
      */
     private void pollAuthStatus(String referenceNumber, String operationToken) {
         for (int attempt = 1; attempt <= MAX_AUTH_POLL_ATTEMPTS; attempt++) {
@@ -179,17 +193,29 @@ public class KsefTokenManager {
                     ksefApiClient.getAuthStatus(referenceNumber, operationToken);
 
             int code = status.getStatus().getCode();
-            log.debug("Auth polling attempt {}/{}: status.code={}", attempt, MAX_AUTH_POLL_ATTEMPTS, code);
+            String desc = status.getStatus().getDescription();
+            log.debug("Auth polling attempt {}/{}: status.code={}, desc={}",
+                    attempt, MAX_AUTH_POLL_ATTEMPTS, code, desc);
 
             if (code == 200) {
                 log.info("Uwierzytelnienie KSeF potwierdzone (referenceNumber={})", referenceNumber);
                 return;
             }
-            if (code == 400) {
-                String desc = status.getStatus().getDescription();
-                throw new KsefException("Uwierzytelnienie KSeF odrzucone (code=400): " + desc);
+
+            if (code == 100) {
+                // W toku — kontynuuj polling
+                continue;
             }
-            // code == 100 → w toku, kontynuuj polling
+
+            // Każdy inny kod to stan finalny — błąd
+            String details = status.getStatus().getDetails() != null
+                    ? String.join("; ", status.getStatus().getDetails())
+                    : "";
+            log.error("Uwierzytelnienie KSeF zakończone błędem: code={}, desc={}, details={}",
+                    code, desc, details);
+            throw new KsefException(
+                    "Uwierzytelnienie KSeF nieudane (code=" + code + "): " + desc
+                    + (details.isBlank() ? "" : " [" + details + "]"));
         }
 
         throw new KsefException("Timeout uwierzytelnienia KSeF — brak potwierdzenia po "

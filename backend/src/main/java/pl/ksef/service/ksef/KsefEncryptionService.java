@@ -15,10 +15,12 @@ import javax.crypto.spec.IvParameterSpec;
 import javax.crypto.spec.OAEPParameterSpec;
 import javax.crypto.spec.PSource;
 import javax.crypto.spec.SecretKeySpec;
+import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
 import java.security.*;
+import java.security.cert.CertificateFactory;
+import java.security.cert.X509Certificate;
 import java.security.spec.MGF1ParameterSpec;
-import java.security.spec.X509EncodedKeySpec;
 import java.time.OffsetDateTime;
 import java.util.Base64;
 import java.util.List;
@@ -191,13 +193,18 @@ public class KsefEncryptionService {
         log.info("Klucze publiczne MF odświeżone, ważne do: {}", latestValidTo);
     }
 
+    /**
+     * Parsuje certyfikat X.509 w formacie DER (Base64) i zwraca zawarty klucz publiczny.
+     * API KSeF zwraca pełny certyfikat X.509, nie sam SubjectPublicKeyInfo.
+     */
     private PublicKey parseDerPublicKey(String base64Der) {
         try {
             byte[] derBytes = Base64.getDecoder().decode(base64Der);
-            KeyFactory keyFactory = KeyFactory.getInstance("RSA");
-            return keyFactory.generatePublic(new X509EncodedKeySpec(derBytes));
+            CertificateFactory cf = CertificateFactory.getInstance("X.509");
+            X509Certificate cert = (X509Certificate) cf.generateCertificate(new ByteArrayInputStream(derBytes));
+            return cert.getPublicKey();
         } catch (Exception e) {
-            throw new KsefException("Nie można sparsować klucza publicznego MF: " + e.getMessage(), e);
+            throw new KsefException("Nie można sparsować certyfikatu X.509 MF: " + e.getMessage(), e);
         }
     }
 }

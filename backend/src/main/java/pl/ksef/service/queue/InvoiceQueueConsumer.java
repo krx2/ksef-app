@@ -46,7 +46,7 @@ public class InvoiceQueueConsumer {
     public void handleSendInvoice(InvoiceMessages.SendInvoiceMessage message) {
         log.info("Processing SendInvoiceMessage invoiceId={}", message.getInvoiceId());
 
-        Invoice invoice = invoiceRepository.findById(message.getInvoiceId()).orElse(null);
+        Invoice invoice = invoiceRepository.findByIdWithItems(message.getInvoiceId()).orElse(null);
         if (invoice == null) {
             log.warn("Invoice {} not found — discarding stale queue message", message.getInvoiceId());
             return;

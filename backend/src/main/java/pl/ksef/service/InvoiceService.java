@@ -7,6 +7,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import pl.ksef.dto.InvoiceDto;
@@ -18,7 +19,7 @@ import pl.ksef.entity.InvoiceItem;
 import pl.ksef.exception.ResourceNotFoundException;
 import pl.ksef.repository.InvoiceRepository;
 import pl.ksef.service.ksef.Fa3Validator;
-import pl.ksef.service.queue.InvoiceQueuePublisher;
+import pl.ksef.service.queue.InvoiceSendRequestedEvent;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -40,7 +41,7 @@ public class InvoiceService {
     private static final Set<String> NON_MONETARY_CODES = Set.of("zw", "oo", "np I", "np II");
 
     private final InvoiceRepository invoiceRepository;
-    private final InvoiceQueuePublisher queuePublisher;
+    private final ApplicationEventPublisher eventPublisher;
     private final Fa3Validator fa3Validator;
 
     /**
@@ -63,7 +64,10 @@ public class InvoiceService {
         invoice.setStatus(Invoice.InvoiceStatus.QUEUED);
         invoice = invoiceRepository.save(invoice);
 
-        queuePublisher.publishSendInvoice(invoice.getId(), userId);
+        // Publikujemy event zamiast bezpośrednio do RabbitMQ — InvoiceQueuePublisher
+        // obsłuży go przez @TransactionalEventListener(AFTER_COMMIT), dzięki czemu
+        // wiadomość trafi do kolejki dopiero po zatwierdzeniu transakcji DB.
+        eventPublisher.publishEvent(new InvoiceSendRequestedEvent(invoice.getId(), userId));
         log.info("Invoice {} (source={}) queued for KSeF send", invoice.getId(), source);
         return invoice;
     }
@@ -100,7 +104,7 @@ public class InvoiceService {
 
         invoice.setStatus(Invoice.InvoiceStatus.QUEUED);
         invoice = invoiceRepository.save(invoice);
-        queuePublisher.publishSendInvoice(invoice.getId(), userId);
+        eventPublisher.publishEvent(new InvoiceSendRequestedEvent(invoice.getId(), userId));
         log.info("Draft invoice {} queued for KSeF send by user {}", invoiceId, userId);
         return invoice;
     }

@@ -65,6 +65,10 @@ public class RabbitMQConfig {
         factory.setMessageConverter(jsonMessageConverter());
         factory.setConcurrentConsumers(2);
         factory.setMaxConcurrentConsumers(5);
+        // Przy nieobsłużonym wyjątku odrzuć wiadomość (reject) zamiast requeueować.
+        // Dzięki temu wiadomość trafia do DLQ (x-dead-letter-routing-key),
+        // a nie wraca w nieskończonej pętli do tej samej kolejki.
+        factory.setDefaultRequeueRejected(false);
         return factory;
     }
 }
