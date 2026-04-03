@@ -3,6 +3,7 @@ package pl.ksef.service.queue;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import pl.ksef.config.RabbitMQConfig;
@@ -11,6 +12,7 @@ import pl.ksef.entity.AppUser;
 import pl.ksef.entity.Invoice;
 import pl.ksef.repository.InvoiceRepository;
 import pl.ksef.repository.UserRepository;
+import pl.ksef.service.EmailService;
 import pl.ksef.service.ksef.EncryptedInvoiceData;
 import pl.ksef.service.ksef.Fa3XmlBuilder;
 import pl.ksef.service.ksef.Fa3XmlParser;
@@ -21,6 +23,7 @@ import pl.ksef.service.ksef.KsefTokenManager;
 
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 
 @Service
@@ -31,6 +34,8 @@ public class InvoiceQueueConsumer {
     private static final int MAX_INVOICE_POLL_ATTEMPTS = 15;
     private static final int FETCH_PAGE_SIZE = 100;
     private static final long INVOICE_POLL_INTERVAL_MS = 2_000L;
+    /** Zakres pobierania faktur — 3h zapewnia overlap przy cyklu co 2h */
+    private static final int FETCH_WINDOW_HOURS = 3;
 
     private final InvoiceRepository invoiceRepository;
     private final UserRepository userRepository;
@@ -40,6 +45,10 @@ public class InvoiceQueueConsumer {
     private final Fa3XmlBuilder fa3XmlBuilder;
     private final InvoiceQueuePublisher queuePublisher;
     private final Fa3XmlParser fa3XmlParser;
+
+    /** Opcjonalny — aktywny tylko gdy app.mail.enabled=true */
+    @Autowired(required = false)
+    private EmailService emailService;
 
     @RabbitListener(queues = RabbitMQConfig.INVOICE_SEND_QUEUE,
                     containerFactory = "rabbitListenerContainerFactory")
@@ -176,9 +185,11 @@ public class InvoiceQueueConsumer {
                         pageOffset, result.getInvoices().size(), user.getId());
 
                 for (KsefDto.QueryMetadataResponse.InvoiceMetadata meta : result.getInvoices()) {
-                    // 1. Sprawdź duplikat po numerze KSeF
-                    if (invoiceRepository.findByKsefNumber(meta.getKsefNumber()).isPresent()) {
-                        log.debug("Faktura {} już istnieje w bazie, pomijam", meta.getKsefNumber());
+                    // 1. Sprawdź duplikat po numerze KSeF i userId — ta sama faktura może istnieć
+                    //    jako ISSUED u wystawcy i jako RECEIVED u odbiorcy, więc sprawdzamy per użytkownik.
+                    if (invoiceRepository.existsByKsefNumberAndUserId(meta.getKsefNumber(), user.getId())) {
+                        log.debug("Faktura {} już istnieje w bazie dla użytkownika {}, pomijam",
+                                meta.getKsefNumber(), user.getId());
                         skipped++;
                         continue;
                     }
@@ -198,6 +209,11 @@ public class InvoiceQueueConsumer {
                         invoiceRepository.save(invoice);
                         saved++;
                         log.debug("Zapisano fakturę ksefNumber={}", meta.getKsefNumber());
+
+                        // 6. Wyślij powiadomienie email (jeśli mail włączony)
+                        if (emailService != null) {
+                            emailService.sendNewInvoiceNotification(user, invoice);
+                        }
 
                     } catch (Exception e) {
                         log.error("Błąd przetwarzania faktury ksefNumber={}: {}",
@@ -275,20 +291,24 @@ public class InvoiceQueueConsumer {
     }
 
     /**
-     * Codziennie o 6:00 publikuje FetchInvoicesMessage do {@code invoice.fetch.queue}
-     * dla każdego użytkownika, który ma ustawiony token KSeF.
-     * Zakres dat: poprzedni dzień (T-1), format ISO-8601 wymagany przez KSeF API v2.
+     * Co 2 godziny (o pełnych godzinach parzystych) pobiera faktury z KSeF
+     * dla każdego użytkownika posiadającego token. Okno: ostatnie {@value FETCH_WINDOW_HOURS}h
+     * (overlap 1h zapobiega pominięciom przy dokładnie 2h cyklu).
+     * Nowe faktury wyzwalają powiadomienie email (gdy app.mail.enabled=true).
      */
-    @Scheduled(cron = "0 0 6 * * *")
-    public void scheduleDailyFetch() {
-        String dateFrom = LocalDate.now().minusDays(1).format(DateTimeFormatter.ISO_LOCAL_DATE) + "T00:00:00Z";
-        String dateTo   = LocalDate.now().minusDays(1).format(DateTimeFormatter.ISO_LOCAL_DATE) + "T23:59:59Z";
+    @Scheduled(cron = "0 0 */2 * * *")
+    public void schedulePeriodicFetch() {
+        LocalDateTime to   = LocalDateTime.now();
+        LocalDateTime from = to.minusHours(FETCH_WINDOW_HOURS);
+
+        String dateFrom = from.format(DateTimeFormatter.ISO_LOCAL_DATE_TIME) + "Z";
+        String dateTo   = to.format(DateTimeFormatter.ISO_LOCAL_DATE_TIME) + "Z";
 
         userRepository.findAll().stream()
                 .filter(u -> u.getKsefToken() != null && !u.getKsefToken().isBlank())
                 .forEach(u -> {
                     queuePublisher.publishFetchInvoices(u.getId(), dateFrom, dateTo);
-                    log.info("Scheduled daily fetch queued for userId={}", u.getId());
+                    log.info("Periodic fetch queued for userId={} window=[{} — {}]", u.getId(), dateFrom, dateTo);
                 });
     }
 }

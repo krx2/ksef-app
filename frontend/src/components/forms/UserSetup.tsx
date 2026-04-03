@@ -4,61 +4,139 @@ import { useState } from 'react';
 import { useUser } from '@/lib/user-context';
 import { usersApi } from '@/lib/api';
 
+type Mode = 'login' | 'register';
+
 export default function UserSetup() {
   const { setUser } = useUser();
-  const [form, setForm] = useState({ email: '', nip: '', companyName: '', ksefToken: '' });
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
+  const [mode, setMode] = useState<Mode>('login');
 
-  const handle = async (e: React.FormEvent) => {
+  // Login state
+  const [nip, setNip] = useState('');
+  const [loginLoading, setLoginLoading] = useState(false);
+  const [loginError, setLoginError] = useState('');
+
+  // Register state
+  const [form, setForm] = useState({ email: '', nip: '', companyName: '', ksefToken: '' });
+  const [registerLoading, setRegisterLoading] = useState(false);
+  const [registerError, setRegisterError] = useState('');
+
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    setLoading(true);
-    setError('');
+    setLoginLoading(true);
+    setLoginError('');
+    try {
+      const user = await usersApi.loginByNip(nip.trim());
+      setUser(user);
+    } catch (err: any) {
+      if (err?.response?.status === 404) {
+        setLoginError('Nie znaleziono konta dla podanego NIP. Zarejestruj się.');
+      } else {
+        setLoginError(err?.response?.data?.error ?? 'Błąd podczas logowania');
+      }
+    } finally {
+      setLoginLoading(false);
+    }
+  };
+
+  const handleRegister = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setRegisterLoading(true);
+    setRegisterError('');
     try {
       const user = await usersApi.create(form);
       setUser(user);
     } catch (err: any) {
-      setError(err?.response?.data?.error ?? 'Błąd podczas tworzenia konta');
+      setRegisterError(err?.response?.data?.error ?? 'Błąd podczas tworzenia konta');
     } finally {
-      setLoading(false);
+      setRegisterLoading(false);
     }
   };
 
   return (
     <div className="max-w-md mx-auto mt-16">
       <div className="card p-8">
-        <h1 className="text-xl font-semibold mb-1">Witaj w KSeF Faktury</h1>
-        <p className="text-sm text-gray-500 mb-6">Uzupełnij dane firmy, aby zacząć.</p>
+        {mode === 'login' ? (
+          <>
+            <h1 className="text-xl font-semibold mb-1">Logowanie</h1>
+            <p className="text-sm text-gray-500 mb-6">Podaj NIP swojej firmy, aby się zalogować.</p>
 
-        <form onSubmit={handle} className="space-y-4">
-          <div>
-            <label className="label">Email</label>
-            <input className="input" type="email" required
-              value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} />
-          </div>
-          <div>
-            <label className="label">NIP (10 cyfr)</label>
-            <input className="input" required maxLength={10} pattern="\d{10}"
-              value={form.nip} onChange={e => setForm(f => ({ ...f, nip: e.target.value }))} />
-          </div>
-          <div>
-            <label className="label">Nazwa firmy</label>
-            <input className="input" required
-              value={form.companyName} onChange={e => setForm(f => ({ ...f, companyName: e.target.value }))} />
-          </div>
-          <div>
-            <label className="label">Token KSeF (opcjonalnie)</label>
-            <input className="input" type="password"
-              placeholder="Możesz dodać później w Konfiguracji"
-              value={form.ksefToken} onChange={e => setForm(f => ({ ...f, ksefToken: e.target.value }))} />
-          </div>
+            <form onSubmit={handleLogin} className="space-y-4">
+              <div>
+                <label className="label">NIP (10 cyfr)</label>
+                <input
+                  className="input"
+                  required
+                  maxLength={10}
+                  pattern="\d{10}"
+                  placeholder="0000000000"
+                  value={nip}
+                  onChange={e => setNip(e.target.value)}
+                />
+              </div>
 
-          {error && <p className="text-sm text-red-600">{error}</p>}
+              {loginError && <p className="text-sm text-red-600">{loginError}</p>}
 
-          <button type="submit" className="btn-primary w-full justify-center" disabled={loading}>
-            {loading ? 'Zapisywanie…' : 'Utwórz konto'}
-          </button>
-        </form>
+              <button type="submit" className="btn-primary w-full justify-center" disabled={loginLoading}>
+                {loginLoading ? 'Logowanie…' : 'Zaloguj się'}
+              </button>
+            </form>
+
+            <p className="text-sm text-center text-gray-500 mt-4">
+              Nie masz konta?{' '}
+              <button
+                className="text-brand-600 hover:underline font-medium"
+                onClick={() => { setMode('register'); setLoginError(''); }}
+              >
+                Zarejestruj się
+              </button>
+            </p>
+          </>
+        ) : (
+          <>
+            <h1 className="text-xl font-semibold mb-1">Rejestracja</h1>
+            <p className="text-sm text-gray-500 mb-6">Uzupełnij dane firmy, aby założyć konto.</p>
+
+            <form onSubmit={handleRegister} className="space-y-4">
+              <div>
+                <label className="label">Email</label>
+                <input className="input" type="email" required
+                  value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} />
+              </div>
+              <div>
+                <label className="label">NIP (10 cyfr)</label>
+                <input className="input" required maxLength={10} pattern="\d{10}"
+                  value={form.nip} onChange={e => setForm(f => ({ ...f, nip: e.target.value }))} />
+              </div>
+              <div>
+                <label className="label">Nazwa firmy</label>
+                <input className="input" required
+                  value={form.companyName} onChange={e => setForm(f => ({ ...f, companyName: e.target.value }))} />
+              </div>
+              <div>
+                <label className="label">Token KSeF (opcjonalnie)</label>
+                <input className="input" type="password"
+                  placeholder="Możesz dodać później w Konfiguracji"
+                  value={form.ksefToken} onChange={e => setForm(f => ({ ...f, ksefToken: e.target.value }))} />
+              </div>
+
+              {registerError && <p className="text-sm text-red-600">{registerError}</p>}
+
+              <button type="submit" className="btn-primary w-full justify-center" disabled={registerLoading}>
+                {registerLoading ? 'Zapisywanie…' : 'Utwórz konto'}
+              </button>
+            </form>
+
+            <p className="text-sm text-center text-gray-500 mt-4">
+              Masz już konto?{' '}
+              <button
+                className="text-brand-600 hover:underline font-medium"
+                onClick={() => { setMode('login'); setRegisterError(''); }}
+              >
+                Zaloguj się
+              </button>
+            </p>
+          </>
+        )}
       </div>
     </div>
   );

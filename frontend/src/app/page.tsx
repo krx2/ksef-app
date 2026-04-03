@@ -1,7 +1,8 @@
 'use client';
 
-import { useQuery } from '@tanstack/react-query';
-import { FileText, Send, Inbox, AlertCircle } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { FileText, Send, Inbox, AlertCircle, RefreshCw } from 'lucide-react';
 import Link from 'next/link';
 import { useUser } from '@/lib/user-context';
 import { invoicesApi } from '@/lib/api';
@@ -9,33 +10,69 @@ import { formatPLN, formatDate } from '@/lib/utils';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import UserSetup from '@/components/forms/UserSetup';
 
-export default function DashboardPage() {
-  const { user, userId } = useUser();
+function currentMonthStart() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`;
+}
+
+export default function HomePage() {
+  const { user, userId, newReceivedCount, clearNewInvoices } = useUser();
+  const queryClient = useQueryClient();
+  const [fetchState, setFetchState] = useState<'idle' | 'loading' | 'done' | 'error'>('idle');
+  const [fetchMsg, setFetchMsg] = useState('');
+
+  const filters = { issueDateFrom: currentMonthStart(), size: 50 };
 
   const { data: issued } = useQuery({
-    queryKey: ['invoices', userId, 'ISSUED'],
-    queryFn: () => invoicesApi.list(userId, { direction: 'ISSUED', size: 5 }),
+    queryKey: ['invoices', userId, 'ISSUED', 'month'],
+    queryFn: () => invoicesApi.list(userId, { ...filters, direction: 'ISSUED' }),
     enabled: !!userId,
   });
 
   const { data: received } = useQuery({
-    queryKey: ['invoices', userId, 'RECEIVED'],
-    queryFn: () => invoicesApi.list(userId, { direction: 'RECEIVED', size: 5 }),
+    queryKey: ['invoices', userId, 'RECEIVED', 'month'],
+    queryFn: () => invoicesApi.list(userId, { ...filters, direction: 'RECEIVED' }),
     enabled: !!userId,
   });
 
+  // Gdy użytkownik wchodzi na stronę główną, wyczyść alert nowych faktur
+  useEffect(() => {
+    if (received && newReceivedCount > 0) {
+      clearNewInvoices(received.totalElements);
+    }
+  }, [received, newReceivedCount, clearNewInvoices]);
+
+  const handleFetchFromKsef = async () => {
+    setFetchState('loading');
+    setFetchMsg('');
+    try {
+      const res = await invoicesApi.fetchFromKsef(userId);
+      setFetchMsg(res.message);
+      setFetchState('done');
+      // Po ~3s odśwież listy faktur
+      setTimeout(() => {
+        queryClient.invalidateQueries({ queryKey: ['invoices', userId] });
+      }, 3000);
+    } catch (err: any) {
+      setFetchMsg(err?.response?.data?.error ?? 'Błąd podczas zlecania pobierania');
+      setFetchState('error');
+    }
+  };
+
   if (!user) return <UserSetup />;
+
+  const failedCount = (issued?.content ?? []).filter(i => i.status === 'FAILED').length;
 
   const stats = [
     {
-      label: 'Wystawione',
+      label: 'Wystawione (ten miesiąc)',
       value: issued?.totalElements ?? '—',
       icon: Send,
       color: 'text-blue-600 bg-blue-50',
       href: '/faktury?direction=ISSUED',
     },
     {
-      label: 'Odebrane',
+      label: 'Odebrane (ten miesiąc)',
       value: received?.totalElements ?? '—',
       icon: Inbox,
       color: 'text-purple-600 bg-purple-50',
@@ -43,12 +80,14 @@ export default function DashboardPage() {
     },
     {
       label: 'Błędy',
-      value: issued?.content.filter(i => i.status === 'FAILED').length ?? 0,
+      value: failedCount,
       icon: AlertCircle,
       color: 'text-red-600 bg-red-50',
       href: '/faktury',
     },
   ];
+
+  const hasNewReceived = newReceivedCount > 0;
 
   return (
     <div className="space-y-8">
@@ -58,11 +97,50 @@ export default function DashboardPage() {
           <h1 className="text-2xl font-semibold text-gray-900">{user.companyName}</h1>
           <p className="text-sm text-gray-500 mt-0.5">NIP: {user.nip} · Środowisko testowe KSeF</p>
         </div>
-        <Link href="/faktury/nowa" className="btn-primary">
-          <FileText size={16} />
-          Nowa faktura
-        </Link>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleFetchFromKsef}
+            disabled={fetchState === 'loading' || !user?.hasKsefToken}
+            title={!user?.hasKsefToken ? 'Brak tokenu KSeF — dodaj go w Konfiguracji' : 'Sprawdź nowe faktury w KSeF'}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-gray-300 text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          >
+            <RefreshCw size={14} className={fetchState === 'loading' ? 'animate-spin' : ''} />
+            {fetchState === 'loading' ? 'Sprawdzanie…' : 'Sprawdź KSeF'}
+          </button>
+          <Link href="/faktury/nowa" className="btn-primary">
+            <FileText size={16} />
+            Nowa faktura
+          </Link>
+        </div>
       </div>
+
+      {/* Komunikat po ręcznym sprawdzeniu */}
+      {fetchMsg && (
+        <div className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm ${
+          fetchState === 'error'
+            ? 'bg-red-50 border border-red-200 text-red-700'
+            : 'bg-green-50 border border-green-200 text-green-700'
+        }`}>
+          {fetchState === 'error' ? <AlertCircle size={15} /> : <RefreshCw size={15} />}
+          {fetchMsg}
+          {fetchState === 'done' && (
+            <span className="text-green-600 text-xs ml-1">— lista odświeży się za chwilę</span>
+          )}
+        </div>
+      )}
+
+      {/* Alert nowych faktur przychodzących */}
+      {hasNewReceived && (
+        <div className="flex items-center gap-3 px-4 py-3 bg-amber-50 border border-amber-200 rounded-lg text-amber-800 text-sm">
+          <AlertCircle size={18} className="text-amber-500 shrink-0" />
+          <span>
+            Masz <strong>{newReceivedCount}</strong> {newReceivedCount === 1 ? 'nową fakturę przychodząca' : 'nowe faktury przychodzące'} od ostatniego logowania.
+          </span>
+          <Link href="/faktury?direction=RECEIVED" className="ml-auto text-amber-700 font-medium hover:underline whitespace-nowrap">
+            Zobacz
+          </Link>
+        </div>
+      )}
 
       {/* Stats */}
       <div className="grid grid-cols-3 gap-4">
@@ -81,16 +159,16 @@ export default function DashboardPage() {
         ))}
       </div>
 
-      {/* Recent issued */}
+      {/* Wystawione w bieżącym miesiącu */}
       <div className="card overflow-hidden">
         <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
-          <h2 className="font-medium text-gray-900">Ostatnio wystawione</h2>
+          <h2 className="font-medium text-gray-900">Wystawione w bieżącym miesiącu</h2>
           <Link href="/faktury?direction=ISSUED" className="text-sm text-brand-600 hover:underline">
             Wszystkie
           </Link>
         </div>
-        {issued?.content.length === 0 ? (
-          <p className="p-5 text-sm text-gray-400">Brak faktur.</p>
+        {!issued || issued.content.length === 0 ? (
+          <p className="p-5 text-sm text-gray-400">Brak wystawionych faktur w tym miesiącu.</p>
         ) : (
           <table className="w-full text-sm">
             <thead className="bg-gray-50 text-gray-500 text-xs uppercase tracking-wide">
@@ -103,10 +181,54 @@ export default function DashboardPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {issued?.content.map(inv => (
+              {issued.content.map(inv => (
                 <tr key={inv.id} className="hover:bg-gray-50 transition-colors">
                   <td className="px-5 py-3 font-mono text-xs">{inv.invoiceNumber}</td>
                   <td className="px-5 py-3 text-gray-700">{inv.buyerName}</td>
+                  <td className="px-5 py-3 text-gray-500">{formatDate(inv.issueDate)}</td>
+                  <td className="px-5 py-3 text-right font-medium">{formatPLN(inv.grossAmount)}</td>
+                  <td className="px-5 py-3"><StatusBadge status={inv.status} /></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+
+      {/* Odebrane w bieżącym miesiącu */}
+      <div className="card overflow-hidden">
+        <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+          <h2 className="font-medium text-gray-900 flex items-center gap-2">
+            Odebrane w bieżącym miesiącu
+            {hasNewReceived && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-amber-100 text-amber-700 text-xs font-medium rounded-full">
+                <AlertCircle size={11} />
+                Nowe
+              </span>
+            )}
+          </h2>
+          <Link href="/faktury?direction=RECEIVED" className="text-sm text-brand-600 hover:underline">
+            Wszystkie
+          </Link>
+        </div>
+        {!received || received.content.length === 0 ? (
+          <p className="p-5 text-sm text-gray-400">Brak odebranych faktur w tym miesiącu.</p>
+        ) : (
+          <table className="w-full text-sm">
+            <thead className="bg-gray-50 text-gray-500 text-xs uppercase tracking-wide">
+              <tr>
+                <th className="px-5 py-3 text-left">Numer</th>
+                <th className="px-5 py-3 text-left">Sprzedawca</th>
+                <th className="px-5 py-3 text-left">Data</th>
+                <th className="px-5 py-3 text-right">Kwota brutto</th>
+                <th className="px-5 py-3 text-left">Status</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {received.content.map(inv => (
+                <tr key={inv.id} className="hover:bg-gray-50 transition-colors">
+                  <td className="px-5 py-3 font-mono text-xs">{inv.invoiceNumber}</td>
+                  <td className="px-5 py-3 text-gray-700">{inv.sellerName}</td>
                   <td className="px-5 py-3 text-gray-500">{formatDate(inv.issueDate)}</td>
                   <td className="px-5 py-3 text-right font-medium">{formatPLN(inv.grossAmount)}</td>
                   <td className="px-5 py-3"><StatusBadge status={inv.status} /></td>

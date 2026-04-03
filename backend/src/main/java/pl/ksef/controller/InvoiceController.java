@@ -11,10 +11,16 @@ import pl.ksef.entity.Invoice.InvoiceSource;
 import pl.ksef.entity.Invoice.InvoiceStatus;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import pl.ksef.entity.AppUser;
+import pl.ksef.repository.UserRepository;
 import pl.ksef.service.InvoiceService;
 import pl.ksef.service.XlsxConfigService;
 import pl.ksef.service.XlsxParserService;
+import pl.ksef.service.queue.InvoiceQueuePublisher;
 
+import java.util.Map;
 import java.util.UUID;
 
 // TODO: Brak mechanizmu autentykacji i autoryzacji.
@@ -31,6 +37,8 @@ public class InvoiceController {
     private final InvoiceService invoiceService;
     private final XlsxParserService xlsxParserService;
     private final XlsxConfigService xlsxConfigService;
+    private final InvoiceQueuePublisher queuePublisher;
+    private final UserRepository userRepository;
 
     /**
      * Pobiera paginowaną listę faktur użytkownika z opcjonalnym filtrowaniem.
@@ -103,6 +111,32 @@ public class InvoiceController {
             @PathVariable UUID id) {
         var invoice = invoiceService.sendDraft(id, userId);
         return ResponseEntity.ok(invoiceService.toResponse(invoice));
+    }
+
+    /**
+     * Ręczne wyzwolenie pobierania faktur przychodzącej z KSeF dla zalogowanego użytkownika.
+     * Publikuje FetchInvoicesMessage do kolejki (okno: ostatnie 24h).
+     * Zwraca 202 Accepted natychmiast — faktyczne pobieranie odbywa się asynchronicznie.
+     */
+    @PostMapping("/fetch")
+    public ResponseEntity<Map<String, String>> fetchFromKsef(
+            @RequestHeader("X-User-Id") UUID userId) {
+
+        AppUser user = userRepository.findById(userId)
+                .orElseThrow(() -> new pl.ksef.exception.ResourceNotFoundException("User not found: " + userId));
+
+        if (user.getKsefToken() == null || user.getKsefToken().isBlank()) {
+            return ResponseEntity.badRequest()
+                    .body(Map.of("error", "Brak tokenu KSeF — skonfiguruj go w ustawieniach konta"));
+        }
+
+        String dateTo   = LocalDateTime.now().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME) + "Z";
+        String dateFrom = LocalDateTime.now().minusHours(24).format(DateTimeFormatter.ISO_LOCAL_DATE_TIME) + "Z";
+
+        queuePublisher.publishFetchInvoices(userId, dateFrom, dateTo);
+
+        return ResponseEntity.accepted()
+                .body(Map.of("message", "Pobieranie faktur z KSeF zostało zlecone"));
     }
 
     /** Preview XLSX parse result without creating invoice */

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, Suspense } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { Plus, Upload, RefreshCw, Search, X } from 'lucide-react';
@@ -22,8 +22,10 @@ const STATUS_LABELS: Record<InvoiceStatus, string> = {
 };
 
 function InvoicesList() {
-  const { userId } = useUser();
+  const { userId, user } = useUser();
+  const queryClient = useQueryClient();
   const searchParams = useSearchParams();
+  const [fetchState, setFetchState] = useState<'idle' | 'loading' | 'done' | 'error'>('idle');
 
   const [direction, setDirection] = useState<InvoiceDirection | undefined>(
     (searchParams.get('direction') as InvoiceDirection) || undefined
@@ -57,6 +59,25 @@ function InvoicesList() {
     enabled:  !!userId,
   });
 
+  const handleRefresh = async () => {
+    setFetchState('loading');
+    try {
+      if (user?.hasKsefToken) {
+        await invoicesApi.fetchFromKsef(userId);
+      }
+      // Poczekaj chwilę na przetworzenie przez RabbitMQ, potem odśwież listę
+      setTimeout(() => {
+        queryClient.invalidateQueries({ queryKey: ['invoices', userId] });
+        setFetchState('done');
+        setTimeout(() => setFetchState('idle'), 3000);
+      }, 3000);
+    } catch {
+      refetch();
+      setFetchState('error');
+      setTimeout(() => setFetchState('idle'), 3000);
+    }
+  };
+
   const resetFilters = () => {
     setSearch('');
     setStatus(undefined);
@@ -77,9 +98,14 @@ function InvoicesList() {
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-semibold">Faktury</h1>
         <div className="flex items-center gap-2">
-          <button onClick={() => refetch()} className="btn-secondary" disabled={isFetching}>
-            <RefreshCw size={15} className={isFetching ? 'animate-spin' : ''} />
-            Odśwież
+          <button
+            onClick={handleRefresh}
+            className="btn-secondary"
+            disabled={fetchState === 'loading' || isFetching}
+            title={user?.hasKsefToken ? 'Pobierz nowe faktury z KSeF i odśwież listę' : 'Odśwież listę (brak tokenu KSeF)'}
+          >
+            <RefreshCw size={15} className={fetchState === 'loading' || isFetching ? 'animate-spin' : ''} />
+            {fetchState === 'loading' ? 'Sprawdzanie KSeF…' : fetchState === 'done' ? 'Odświeżono ✓' : fetchState === 'error' ? 'Odświeżono' : 'Odśwież'}
           </button>
           <Link href="/faktury/nowa?source=xlsx" className="btn-secondary">
             <Upload size={15} />

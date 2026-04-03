@@ -25,6 +25,8 @@ public interface InvoiceRepository extends JpaRepository<Invoice, UUID>,
 
     Optional<Invoice> findByKsefNumber(String ksefNumber);
 
+    boolean existsByKsefNumberAndUserId(String ksefNumber, UUID userId);
+
     long countByUserIdAndDirection(UUID userId, InvoiceDirection direction);
 
     /**

@@ -20,6 +20,14 @@ public class UserController {
 
     private final UserRepository userRepository;
 
+    @GetMapping("/by-nip/{nip}")
+    public ResponseEntity<UserResponse> getByNip(@PathVariable String nip) {
+        return userRepository.findByNip(nip)
+                .map(UserResponse::from)
+                .map(ResponseEntity::ok)
+                .orElse(ResponseEntity.notFound().build());
+    }
+
     @GetMapping("/{id}")
     public ResponseEntity<UserResponse> get(@PathVariable UUID id) {
         // TODO: Brak autoryzacji — każdy może pobrać dane dowolnego użytkownika podając jego UUID.

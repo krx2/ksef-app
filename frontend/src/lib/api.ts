@@ -91,6 +91,9 @@ export const invoicesApi = {
   /** Send invoice data (already parsed & edited by user) as plain JSON. */
   createFromParsed: (userId: string, data: unknown) =>
     api.post<Invoice>('/invoices', data, withUser(userId)).then(r => r.data),
+
+  fetchFromKsef: (userId: string) =>
+    api.post<{ message: string }>('/invoices/fetch', null, withUser(userId)).then(r => r.data),
 };
 
 // ---- XLSX Configurations ----
@@ -127,6 +130,9 @@ export const xlsxConfigsApi = {
 export const usersApi = {
   get: (id: string) =>
     api.get<AppUser>(`/users/${id}`).then(r => r.data),
+
+  loginByNip: (nip: string) =>
+    api.get<AppUser>(`/users/by-nip/${nip}`).then(r => r.data),
 
   create: (data: { email: string; nip: string; companyName: string; ksefToken?: string }) =>
     api.post<AppUser>('/users', data).then(r => r.data),
