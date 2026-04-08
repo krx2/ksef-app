@@ -41,8 +41,12 @@ spring:
       mail:
         smtp:
           auth: true
+          # Port 465 → MAIL_SSL=true,  MAIL_STARTTLS=false  (SMTP over SSL)
+          # Port 587 → MAIL_SSL=false, MAIL_STARTTLS=true   (STARTTLS)
+          ssl:
+            enable: ${MAIL_SSL:false}
           starttls:
-            enable: true
+            enable: ${MAIL_STARTTLS:true}
 
 server:
   port: 8080
