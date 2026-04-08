@@ -5,15 +5,15 @@ services:
     image: postgres:16-alpine
     container_name: ksef-postgres
     environment:
-      POSTGRES_DB: ksef_db
-      POSTGRES_USER: ksef_user
-      POSTGRES_PASSWORD: ksef_pass
+      POSTGRES_DB: ${DB_NAME:-ksef_db}
+      POSTGRES_USER: ${DB_USER:-ksef_user}
+      POSTGRES_PASSWORD: ${DB_PASS}
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ksef_user -d ksef_db"]
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-ksef_user} -d ${DB_NAME:-ksef_db}"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -22,11 +22,11 @@ services:
     image: rabbitmq:3.13-management-alpine
     container_name: ksef-rabbitmq
     environment:
-      RABBITMQ_DEFAULT_USER: ksef_user
-      RABBITMQ_DEFAULT_PASS: ksef_pass
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-ksef_user}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASS}
     ports:
-      - "5672:5672"
-      - "15672:15672"
+      - "127.0.0.1:5672:5672"
+      - "127.0.0.1:15672:15672"
     volumes:
       - rabbitmq_data:/var/lib/rabbitmq
     healthcheck:

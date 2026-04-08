@@ -3,9 +3,9 @@ spring:
     name: ksef-backend
 
   datasource:
-    url: jdbc:postgresql://localhost:5432/ksef_db
-    username: ksef_user
-    password: ksef_pass
+    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:ksef_db}
+    username: ${DB_USER:ksef_user}
+    password: ${DB_PASS}
     driver-class-name: org.postgresql.Driver
 
   jpa:
@@ -22,10 +22,10 @@ spring:
     locations: classpath:db/migration
 
   rabbitmq:
-    host: localhost
-    port: 5672
-    username: ksef_user
-    password: ksef_pass
+    host: ${RABBITMQ_HOST:localhost}
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_USER:ksef_user}
+    password: ${RABBITMQ_PASS}
 
   servlet:
     multipart:
@@ -49,7 +49,7 @@ server:
 
 ksef:
   api:
-    base-url: https://api-test.ksef.mf.gov.pl/v2
+    base-url: ${KSEF_BASE_URL:https://api-test.ksef.mf.gov.pl/v2}
     timeout-seconds: 30
 
 cors:
@@ -64,5 +64,5 @@ app:
 
 logging:
   level:
-    pl.ksef: DEBUG
+    pl.ksef: INFO
     org.springframework.amqp: INFO
