@@ -49,8 +49,15 @@ server:
 
 ksef:
   api:
+    # URL nadpisywany przez profil ksef-test lub ksef-prod (SPRING_PROFILES_ACTIVE w .env)
+    # Fallback na testowe wyłącznie jako zabezpieczenie — w praktyce profil musi być ustawiony
     base-url: ${KSEF_BASE_URL:https://api-test.ksef.mf.gov.pl/v2}
     timeout-seconds: 30
+    rate-limit:
+      requests-per-second: 100
+      requests-per-minute: 300
+      requests-per-hour: 1200
+  testdata-endpoints-available: true
 
 cors:
   allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000}
@@ -60,7 +67,9 @@ app:
     enabled: ${MAIL_ENABLED:false}
     from: ${MAIL_FROM:noreply@ksef-faktury.pl}
   ksef:
+    # URL podglądu nadpisywany przez profil — fallback na testowe
     viewer-url: ${KSEF_VIEWER_URL:https://ksef-test.mf.gov.pl/web/wizualizacja/FA}
+    environment: test
 
 logging:
   level:

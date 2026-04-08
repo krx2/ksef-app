@@ -363,6 +363,7 @@ PUT    /api/users/{id}/ksef-token        Aktualizacja tokenu KSeF
 
 | Zmienna | Domyślna | Opis |
 |---------|---------|------|
+| `SPRING_PROFILES_ACTIVE` | `ksef-test` | **Środowisko KSeF** — `ksef-test` lub `ksef-prod` |
 | `DB_HOST` | `localhost` | Host PostgreSQL |
 | `DB_PORT` | `5432` | Port PostgreSQL |
 | `DB_NAME` | `ksef_db` | Nazwa bazy danych |
@@ -373,14 +374,25 @@ PUT    /api/users/{id}/ksef-token        Aktualizacja tokenu KSeF
 | `RABBITMQ_USER` | `ksef_user` | Użytkownik RabbitMQ |
 | `RABBITMQ_PASS` | — | Hasło RabbitMQ (wymagane) |
 | `CORS_ALLOWED_ORIGINS` | `http://localhost:3000` | Dozwolone originy CORS |
-| `KSEF_BASE_URL` | `https://api-test.ksef.mf.gov.pl/v2` | URL API KSeF |
-| `KSEF_VIEWER_URL` | `https://ksef-test.mf.gov.pl/...` | URL podglądu KSeF |
 | `MAIL_ENABLED` | `false` | Włącz powiadomienia e-mail |
 | `MAIL_HOST` | `smtp.gmail.com` | Serwer SMTP |
 | `MAIL_PORT` | `587` | Port SMTP |
 | `MAIL_USERNAME` | — | Login SMTP |
 | `MAIL_PASSWORD` | — | Hasło SMTP |
 | `MAIL_FROM` | `noreply@ksef-faktury.pl` | Adres nadawcy |
+
+#### Przełączanie środowiska KSeF — profil `SPRING_PROFILES_ACTIVE`
+
+Wartość zmiennej `SPRING_PROFILES_ACTIVE` w `backend/.env` aktywuje odpowiedni profil Spring Boot:
+
+| Wartość | Środowisko | API URL | Limity | Endpointy `/testdata/*` |
+|---------|-----------|---------|--------|------------------------|
+| `ksef-test` | Testowe MF | `api-test.ksef.mf.gov.pl/v2` | 100 req/s | dostępne |
+| `ksef-prod` | Produkcyjne MF | `api.ksef.mf.gov.pl/v2` | 10 req/s | niedostępne |
+
+Konfiguracja każdego profilu w plikach:
+- `backend/src/main/resources/application-ksef-test.yml`
+- `backend/src/main/resources/application-ksef-prod.yml`
 
 ### Frontend (`frontend/.env.local`)
 

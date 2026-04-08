@@ -543,19 +543,31 @@ curl -X POST http://localhost:8080/api/invoices/fetch \
 
 ## 11. Zmiana środowiska KSeF z testowego na produkcyjne
 
+Aplikacja używa Spring Boot profiles do przełączania między środowiskami KSeF. Profil określa URL API, URL podglądu faktur, limity zapytań oraz dostępność endpointów `/testdata/*`.
+
+| Profil | Środowisko | API | Limity req/s | `/testdata/*` |
+|--------|-----------|-----|--------------|---------------|
+| `ksef-test` | Testowe MF | `api-test.ksef.mf.gov.pl` | 100 | dostępne |
+| `ksef-prod` | Produkcyjne MF | `api.ksef.mf.gov.pl` | 10 | niedostępne |
+
 > ⚠️ Wykonaj ten krok dopiero po pełnym przetestowaniu na środowisku testowym KSeF.
 
-### 11.1 Zmień URL w `backend/.env`
+### 11.1 Zmień profil w `backend/.env`
 
 ```bash
 nano /opt/ksef-app/backend/.env
 ```
 
+Znajdź i zmień jedną linię:
 ```properties
-# Zmień linie:
-KSEF_BASE_URL=https://api.ksef.mf.gov.pl/v2
-KSEF_VIEWER_URL=https://ksef.mf.gov.pl/web/wizualizacja/FA
+# PRZED (testowe):
+SPRING_PROFILES_ACTIVE=ksef-test
+
+# PO (produkcyjne):
+SPRING_PROFILES_ACTIVE=ksef-prod
 ```
+
+To jedyna wymagana zmiana — URL API, URL podglądu i limity zostaną automatycznie zastosowane z pliku `application-ksef-prod.yml`.
 
 ### 11.2 Zaktualizuj tokeny KSeF użytkowników
 
@@ -569,11 +581,23 @@ Każdy użytkownik musi zaktualizować swój token KSeF na produkcyjny:
 
 ```bash
 sudo systemctl restart ksef-backend
+
+# Sprawdź w logach że załadowany jest właściwy profil:
+journalctl -u ksef-backend -n 30 | grep -i "profile\|ksef"
+# Oczekiwane: "The following 1 profile is active: ksef-prod"
 ```
 
 ### 11.4 Test wysyłki do produkcji
 
 Wyślij fakturę testową i sprawdź w KSeF (https://ksef.mf.gov.pl) czy pojawiła się poprawnie.
+
+### 11.5 Powrót do środowiska testowego
+
+```bash
+nano /opt/ksef-app/backend/.env
+# Zmień z powrotem: SPRING_PROFILES_ACTIVE=ksef-test
+sudo systemctl restart ksef-backend
+```
 
 ---
 

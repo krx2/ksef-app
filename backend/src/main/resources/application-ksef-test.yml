@@ -1,0 +1,30 @@
+# =============================================================
+# Profil: ksef-test — środowisko TESTOWE KSeF (api-test.ksef.mf.gov.pl)
+# Aktywuj przez: SPRING_PROFILES_ACTIVE=ksef-test
+#
+# Różnice względem produkcji:
+#   - osobny URL API i podglądu
+#   - 14 dodatkowych endpointów /testdata/* do zarządzania danymi testowymi
+#   - limity zapytań 10x wyższe niż produkcja (100 req/s vs 10 req/s)
+# =============================================================
+
+ksef:
+  api:
+    base-url: https://api-test.ksef.mf.gov.pl/v2
+    timeout-seconds: 30
+    # Limity środowiska testowego (wg openapi_test.json)
+    rate-limit:
+      requests-per-second: 100
+      requests-per-minute: 300
+      requests-per-hour: 1200
+  # Dostępne wyłącznie w środowisku testowym — endpointy /testdata/*
+  testdata-endpoints-available: true
+
+app:
+  ksef:
+    viewer-url: https://ksef-test.mf.gov.pl/web/wizualizacja/FA
+    environment: test
+
+logging:
+  level:
+    pl.ksef.ksef: DEBUG

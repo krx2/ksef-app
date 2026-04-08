@@ -1,0 +1,35 @@
+# =============================================================
+# Profil: ksef-prod — środowisko PRODUKCYJNE KSeF (api.ksef.mf.gov.pl)
+# Aktywuj przez: SPRING_PROFILES_ACTIVE=ksef-prod
+#
+# Różnice względem testu:
+#   - produkcyjny URL API i podglądu
+#   - brak endpointów /testdata/* (nie istnieją w produkcji)
+#   - limity zapytań 10x niższe niż test (10 req/s vs 100 req/s)
+#
+# UWAGA: Przed przełączeniem na produkcję upewnij się że:
+#   1. Wszyscy użytkownicy mają wgrane tokeny KSeF produkcyjne
+#   2. Środowisko testowe zostało w pełni zweryfikowane
+#   3. Faktury testowe nie zostaną przypadkowo wysłane do KSeF prod
+# =============================================================
+
+ksef:
+  api:
+    base-url: https://api.ksef.mf.gov.pl/v2
+    timeout-seconds: 30
+    # Limity środowiska produkcyjnego (wg openapi_pr.json) — 10x niższe niż test
+    rate-limit:
+      requests-per-second: 10
+      requests-per-minute: 30
+      requests-per-hour: 120
+  # Endpointy /testdata/* są niedostępne w produkcji
+  testdata-endpoints-available: false
+
+app:
+  ksef:
+    viewer-url: https://ksef.mf.gov.pl/web/wizualizacja/FA
+    environment: prod
+
+logging:
+  level:
+    pl.ksef.ksef: INFO
