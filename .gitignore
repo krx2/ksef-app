@@ -1,0 +1,39 @@
+# =============================================================
+# Pliki z sekretami i konfiguracją lokalną — NIE commitować!
+# =============================================================
+backend/.env
+docker-compose.env
+frontend/.env.local
+frontend/.env.production
+config.txt
+
+# =============================================================
+# Backend — Maven / Spring Boot
+# =============================================================
+backend/target/
+*.jar
+*.war
+*.class
+*.log
+
+# =============================================================
+# Frontend — Node.js / Next.js
+# =============================================================
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+frontend/.vercel/
+frontend/npm-debug.log*
+frontend/yarn-debug.log*
+frontend/yarn-error.log*
+
+# =============================================================
+# IDE / narzędzia
+# =============================================================
+.idea/
+*.iml
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
