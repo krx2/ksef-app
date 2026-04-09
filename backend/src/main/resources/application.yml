@@ -71,8 +71,8 @@ app:
     enabled: ${MAIL_ENABLED:false}
     from: ${MAIL_FROM:noreply@ksef-faktury.pl}
   ksef:
-    # URL podglądu nadpisywany przez profil — fallback na testowe
-    viewer-url: ${KSEF_VIEWER_URL:https://ksef-test.mf.gov.pl/web/wizualizacja/FA}
+    # URL podglądu nadpisywany przez profil — fallback na testowe (KSeF v2)
+    viewer-url: ${KSEF_VIEWER_URL:https://qr-test.ksef.mf.gov.pl/invoice}
     environment: test
 
 logging:

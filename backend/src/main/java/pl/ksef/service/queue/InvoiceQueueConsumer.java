@@ -116,10 +116,15 @@ public class InvoiceQueueConsumer {
             log.info("Faktura {} wysłana do sesji {}, invoiceRef={}", invoice.getId(), sessionRef, invoiceRef);
 
             // 6. Polling — czekaj na numer KSeF (potwierdzenie przetworzenia)
-            String ksefNumber = pollForKsefNumber(accessToken, sessionRef, invoiceRef);
-            invoice.setKsefNumber(ksefNumber);
+            KsefDto.SessionInvoiceStatusResponse statusResp =
+                    pollForKsefStatus(accessToken, sessionRef, invoiceRef);
+            invoice.setKsefNumber(statusResp != null ? statusResp.getKsefNumber() : null);
+            invoice.setInvoiceHash(statusResp != null ? statusResp.getInvoiceHash() : null);
             invoice.setStatus(Invoice.InvoiceStatus.SENT);
-            log.info("Invoice {} sent to KSeF, ksefNumber={}", invoice.getId(), ksefNumber);
+            log.info("Invoice {} sent to KSeF, ksefNumber={}, invoiceHash={}",
+                    invoice.getId(),
+                    statusResp != null ? statusResp.getKsefNumber() : null,
+                    statusResp != null ? statusResp.getInvoiceHash() : null);
 
         } catch (KsefException e) {
             log.error("KSeF error for invoice {}: {}", invoice.getId(), e.getMessage());
@@ -201,8 +206,9 @@ public class InvoiceQueueConsumer {
                         // 3. Parsuj XML FA(3) → encja Invoice
                         Invoice invoice = fa3XmlParser.parse(xml, user.getId());
 
-                        // 4. Uzupełnij numer KSeF i zapisz oryginalny XML
+                        // 4. Uzupełnij numer KSeF, hash i zapisz oryginalny XML
                         invoice.setKsefNumber(meta.getKsefNumber());
+                        invoice.setInvoiceHash(meta.getInvoiceHash());
                         invoice.setFa2Xml(xml);
 
                         // 5. Zapisz do bazy (status=RECEIVED_FROM_KSEF, source=KSEF ustawione przez parser)
@@ -241,9 +247,10 @@ public class InvoiceQueueConsumer {
      *
      * <p>Obsługuje kod 440 (duplikat) — przyjmuje oryginalny numer KSeF z odpowiedzi.
      *
-     * @return numer KSeF lub null jeśli nie pojawił się w czasie limitu
+     * @return pełna odpowiedź statusu (zawiera ksefNumber i invoiceHash) lub null przy timeout
      */
-    private String pollForKsefNumber(String accessToken, String sessionRef, String invoiceRef) {
+    private KsefDto.SessionInvoiceStatusResponse pollForKsefStatus(
+            String accessToken, String sessionRef, String invoiceRef) {
         for (int attempt = 1; attempt <= MAX_INVOICE_POLL_ATTEMPTS; attempt++) {
             try {
                 Thread.sleep(INVOICE_POLL_INTERVAL_MS);
@@ -255,15 +262,14 @@ public class InvoiceQueueConsumer {
                 log.debug("Invoice status poll {}/{}: code={}", attempt, MAX_INVOICE_POLL_ATTEMPTS, code);
 
                 if (code == 200) {
-                    return status.getKsefNumber();
+                    return status;
                 }
 
                 if (code == 440) {
                     // Duplikat faktury — faktura już istnieje w KSeF
                     log.warn("Faktura {} to duplikat w KSeF (code=440)", invoiceRef);
-                    // extensions zawiera originalKsefNumber jeśli API go zwraca
                     if (status.getKsefNumber() != null) {
-                        return status.getKsefNumber();
+                        return status;
                     }
                     throw new KsefException("Duplikat faktury w KSeF (code=440, invoiceRef=" + invoiceRef + ")");
                 }

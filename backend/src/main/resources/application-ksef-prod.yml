@@ -27,7 +27,8 @@ ksef:
 
 app:
   ksef:
-    viewer-url: https://ksef.mf.gov.pl/web/wizualizacja/FA
+    # URL wizualizacji KSeF v2 — format: {base}/{nip}/{DD-MM-YYYY}/{skrót}
+    viewer-url: https://qr.ksef.mf.gov.pl/invoice
     environment: prod
 
 logging:

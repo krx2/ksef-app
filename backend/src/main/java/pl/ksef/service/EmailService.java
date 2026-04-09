@@ -12,6 +12,7 @@ import pl.ksef.entity.AppUser;
 import pl.ksef.entity.Invoice;
 
 import java.text.NumberFormat;
+import java.time.format.DateTimeFormatter;
 import java.util.Locale;
 
 /**
@@ -29,8 +30,12 @@ public class EmailService {
     @Value("${app.mail.from:noreply@ksef-faktury.pl}")
     private String from;
 
-    @Value("${app.ksef.viewer-url:https://ksef-test.mf.gov.pl/web/wizualizacja/FA}")
+    @Value("${app.ksef.viewer-url:https://qr-test.ksef.mf.gov.pl/invoice}")
     private String ksefViewerBaseUrl;
+
+    // Format daty w URL wizualizacji KSeF v2: DD-MM-YYYY
+    private static final DateTimeFormatter VIEWER_DATE_FORMAT =
+            DateTimeFormatter.ofPattern("dd-MM-yyyy");
 
     public void sendNewInvoiceNotification(AppUser recipient, Invoice invoice) {
         if (recipient.getEmail() == null || recipient.getEmail().isBlank()) {
@@ -59,9 +64,20 @@ public class EmailService {
     }
 
     private String buildHtml(AppUser recipient, Invoice invoice) {
-        String viewerUrl = invoice.getKsefNumber() != null
-                ? ksefViewerBaseUrl + "/" + invoice.getKsefNumber()
-                : null;
+        // Format URL wizualizacji KSeF v2:
+        // {base}/{nip-wystawiającego}/{data-DD-MM-YYYY}/{invoiceHash}
+        // Przykład: https://qr-test.ksef.mf.gov.pl/invoice/6793103760/08-04-2026/jd622ZsalcIn...
+        // invoiceHash to SHA-256 faktury (Base64) z SessionInvoiceStatusResponse lub QueryMetadataResponse
+        String viewerUrl = null;
+        if (invoice.getInvoiceHash() != null
+                && invoice.getSellerNip() != null
+                && invoice.getIssueDate() != null) {
+            String dateFormatted = invoice.getIssueDate().format(VIEWER_DATE_FORMAT);
+            viewerUrl = ksefViewerBaseUrl
+                    + "/" + invoice.getSellerNip()
+                    + "/" + dateFormatted
+                    + "/" + invoice.getInvoiceHash();
+        }
         String amount = formatAmount(invoice);
 
         String viewerBlock = "";

@@ -30,6 +30,15 @@ public class Invoice {
     @Column(name = "ksef_reference_number")
     private String ksefReferenceNumber;
 
+    /**
+     * Skrót SHA-256 faktury (Base64) zwracany przez KSeF w SessionInvoiceStatusResponse.invoiceHash
+     * i QueryMetadataResponse.InvoiceMetadata.invoiceHash.
+     * Używany jako ostatni segment URL wizualizacji KSeF v2:
+     * https://qr[-test].ksef.mf.gov.pl/invoice/{nip}/{DD-MM-YYYY}/{invoiceHash}
+     */
+    @Column(name = "invoice_hash")
+    private String invoiceHash;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private InvoiceDirection direction;

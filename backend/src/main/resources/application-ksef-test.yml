@@ -22,7 +22,8 @@ ksef:
 
 app:
   ksef:
-    viewer-url: https://ksef-test.mf.gov.pl/web/wizualizacja/FA
+    # URL wizualizacji KSeF v2 — format: {base}/{nip}/{DD-MM-YYYY}/{skrót}
+    viewer-url: https://qr-test.ksef.mf.gov.pl/invoice
     environment: test
 
 logging:
