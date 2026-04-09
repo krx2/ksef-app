@@ -66,34 +66,30 @@ System umożliwia pracownikom biura rachunkowego:
 
 ## 3. Architektura systemu
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                        Sieć LAN biura                           │
-│                                                                 │
-│   ┌──────────────┐   REST /api/backend/*   ┌────────────────┐  │
-│   │   Przeglądarka│ ──────────────────────▶│  Next.js :3000 │  │
-│   │   użytkownika │                        │  (frontend)    │  │
-│   └──────────────┘                        └───────┬────────┘  │
-│                                                   │ proxy      │
-│                                           /api/backend → :8080 │
-│                                                   ▼            │
-│                                       ┌───────────────────┐   │
-│                                       │  Spring Boot :8080 │   │
-│                                       │  (backend)         │   │
-│                                       └───┬───────┬───┬───┘   │
-│                                           │       │   │        │
-│                              ┌────────────▼┐  ┌───▼─┐ │        │
-│                              │ PostgreSQL  │  │Rabbit│ │        │
-│                              │ :5432       │  │MQ    │ │        │
-│                              │ (tylko      │  │:5672 │ │        │
-│                              │  localhost) │  │(tylko│ │        │
-│                              └─────────────┘  │local)│ │        │
-│                                               └──────┘ │        │
-└───────────────────────────────────────────────────────┼────────┘
-                                                        │ HTTPS
-                                                        ▼
-                                             api.ksef.mf.gov.pl
-                                             (KSeF API — MF)
+```mermaid
+graph TD
+    subgraph LAN["🏢 Sieć LAN biura"]
+        Browser["🖥️ Przeglądarka\nużytkownika"]
+
+        subgraph App["Aplikacja"]
+            FE["Next.js :3000\nfrontend"]
+            BE["Spring Boot :8080\nbackend"]
+        end
+
+        subgraph Infra["Infrastruktura (Docker — tylko localhost)"]
+            PG[("PostgreSQL :5432")]
+            MQ["RabbitMQ :5672"]
+        end
+    end
+
+    KSEF["☁️ KSeF API MF\napi.ksef.mf.gov.pl"]
+
+    Browser -->|"HTTP /api/backend/*"| FE
+    FE -->|"proxy → HTTP /api/*"| BE
+    BE -->|"JPA / JDBC"| PG
+    BE -->|"AMQP"| MQ
+    MQ -->|"consume"| BE
+    BE -->|"HTTPS"| KSEF
 ```
 
 Więcej diagramów (C4, przepływy danych, automat stanów, ERD) — patrz [ARCHITECTURE.md](ARCHITECTURE.md).
@@ -246,20 +242,34 @@ Pełny schemat ERD — patrz [ARCHITECTURE.md](ARCHITECTURE.md) (diagram 9).
 
 Wysyłka faktury do KSeF odbywa się **asynchronicznie** przez RabbitMQ:
 
-```
-createAndQueue()
-    └─▶ [invoice.send.queue]
-            └─▶ InvoiceQueueConsumer
-                    ├─▶ Sukces → status SENT + ksefNumber
-                    └─▶ Błąd → [invoice.send.dlq]
-                                  └─▶ InvoiceDlqConsumer → status FAILED
+```mermaid
+flowchart TD
+    A([Użytkownik\nwystawia fakturę]) --> B[InvoiceService\ncreateAndQueue]
+    B --> C[(DB: status\nQUEUED)]
+    B --> D[TransactionalEventListener\nAFTER_COMMIT]
+    D --> E[[invoice.send.queue\nRabbitMQ]]
+    E --> F[InvoiceQueueConsumer]
+    F --> G{Wynik}
+    G -->|sukces| H[(DB: status SENT\nksefNumber\ninvoiceHash)]
+    G -->|błąd| I[[invoice.send.dlq\nDead Letter Queue]]
+    I --> J[InvoiceDlqConsumer]
+    J --> K[(DB: status\nFAILED)]
 ```
 
 Pobieranie faktur przychodzących:
-- **Automatycznie** — harmonogram `@Scheduled`, co 2 godziny
-- **Na żądanie** — przycisk „Sprawdź KSeF" w dashboardzie
 
-Zdarzenia publikowane są przez `@TransactionalEventListener(AFTER_COMMIT)` — gwarantuje to, że wiadomość RabbitMQ zostanie wysłana dopiero po zapisie faktury w bazie.
+```mermaid
+flowchart LR
+    S(["⏰ @Scheduled\nco 2 godziny"]) --> Q
+    U(["👤 Użytkownik\n'Sprawdź KSeF'"]) --> Q
+    Q[[invoice.fetch.queue]] --> C[InvoiceQueueConsumer]
+    C -->|"GET /invoices/query"| K["☁️ KSeF API"]
+    K --> C
+    C -->|"zapisz + invoiceHash"| DB[(DB: status\nRECEIVED_FROM_KSEF)]
+    C -->|"jeśli MAIL_ENABLED"| E["📧 EmailService\npowiadomienie"]
+```
+
+Zdarzenia wysyłkowe publikowane są przez `@TransactionalEventListener(AFTER_COMMIT)` — gwarantuje to, że wiadomość RabbitMQ zostanie wysłana dopiero po zapisie faktury w bazie.
 
 ---
 
@@ -273,12 +283,12 @@ Aplikacja obsługuje pełny cykl życia faktury w KSeF:
 4. **Polling statusu** — odpytywanie KSeF (maks. 5 prób z backoff) po numer referencyjny
 5. **Pobieranie przychodzących** — `GET /Invoice/Query` w oknie czasowym 3h
 
-| Środowisko | URL API | URL podglądu |
-|------------|---------|--------------|
-| **TEST** | `https://api-test.ksef.mf.gov.pl/v2` | `https://ksef-test.mf.gov.pl/web/wizualizacja/FA` |
-| **PRODUKCJA** | `https://api.ksef.mf.gov.pl/v2` | `https://ksef.mf.gov.pl/web/wizualizacja/FA` |
+| Środowisko | URL API | URL podglądu faktury (KSeF v2) |
+|------------|---------|-------------------------------|
+| **TEST** | `https://api-test.ksef.mf.gov.pl/v2` | `https://qr-test.ksef.mf.gov.pl/invoice/{nip}/{DD-MM-YYYY}/{invoiceHash}` |
+| **PRODUKCJA** | `https://api.ksef.mf.gov.pl/v2` | `https://qr.ksef.mf.gov.pl/invoice/{nip}/{DD-MM-YYYY}/{invoiceHash}` |
 
-Konfiguracja środowiska przez zmienną `KSEF_BASE_URL` w `backend/.env`.
+Konfiguracja środowiska przez zmienną `SPRING_PROFILES_ACTIVE` w `backend/.env`.
 
 ---
 
