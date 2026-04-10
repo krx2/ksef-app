@@ -26,14 +26,8 @@ function InvoicesList() {
   const router = useRouter();
   const queryClient = useQueryClient();
   const searchParams = useSearchParams();
+
   const [fetchState, setFetchState] = useState<'idle' | 'loading' | 'done' | 'error'>('idle');
-
-  useEffect(() => {
-    if (isLoaded && !user) router.replace('/');
-  }, [isLoaded, user, router]);
-
-  if (!isLoaded || !user) return null;
-
   const [direction, setDirection] = useState<InvoiceDirection | undefined>(
     (searchParams.get('direction') as InvoiceDirection) || undefined
   );
@@ -65,6 +59,12 @@ function InvoicesList() {
     queryFn:  () => invoicesApi.list(userId, filters),
     enabled:  !!userId,
   });
+
+  useEffect(() => {
+    if (isLoaded && !user) router.replace('/');
+  }, [isLoaded, user, router]);
+
+  if (!isLoaded || !user) return null;
 
   const handleRefresh = async () => {
     setFetchState('loading');

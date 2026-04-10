@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { usePathname, useRouter } from 'next/navigation';
+import { usePathname } from 'next/navigation';
 import { FileText, Settings, Home, LogOut, AlertCircle } from 'lucide-react';
 import { useUser } from '@/lib/user-context';
 import { cn } from '@/lib/utils';
@@ -14,13 +14,7 @@ const links = [
 
 export default function Nav() {
   const pathname = usePathname();
-  const router = useRouter();
   const { user, logout, newReceivedCount } = useUser();
-
-  const handleLogout = () => {
-    logout();
-    router.push('/');
-  };
 
   return (
     <nav className="bg-white border-b border-gray-200 sticky top-0 z-40">
@@ -56,7 +50,7 @@ export default function Nav() {
               <span className="font-medium text-gray-700">{user.companyName}</span>
               <span className="text-xs text-gray-400">NIP: {user.nip}</span>
               <button
-                onClick={handleLogout}
+                onClick={logout}
                 className="flex items-center gap-1 px-2 py-1 rounded-md text-gray-500 hover:text-red-600 hover:bg-red-50 transition-colors"
                 title="Wyloguj się"
               >

@@ -14,12 +14,6 @@ export default function KonfiguracjaPage() {
   const router = useRouter();
   const qc = useQueryClient();
 
-  useEffect(() => {
-    if (isLoaded && !user) router.replace('/');
-  }, [isLoaded, user, router]);
-
-  if (!isLoaded || !user) return null;
-
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<XlsxConfig | null>(null);
   const [ksefToken, setKsefToken] = useState('');
@@ -35,6 +29,12 @@ export default function KonfiguracjaPage() {
     mutationFn: (id: string) => xlsxConfigsApi.delete(userId, id),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['xlsx-configs', userId] }),
   });
+
+  useEffect(() => {
+    if (isLoaded && !user) router.replace('/');
+  }, [isLoaded, user, router]);
+
+  if (!isLoaded || !user) return null;
 
   const handleSaveToken = async () => {
     if (!userId || !ksefToken) return;
