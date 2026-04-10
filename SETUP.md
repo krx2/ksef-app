@@ -35,16 +35,7 @@ RABBITMQ_PASS=twoje_haslo_rabbit
 SPRING_PROFILES_ACTIVE=ksef-test
 ```
 
-Opcjonalnie włącz wysyłkę e-mail:
-
-```env
-MAIL_ENABLED=true
-MAIL_HOST=smtp.gmail.com
-MAIL_PORT=587
-MAIL_USERNAME=twoj@gmail.com
-MAIL_PASSWORD=haslo-aplikacji-google
-MAIL_FROM=faktury@twojafirma.pl
-```
+Opcjonalnie włącz wysyłkę e-mail (patrz sekcja [Konfiguracja e-mail](#konfiguracja-e-mail) poniżej).
 
 ### 2. Uruchom
 
@@ -134,6 +125,55 @@ npm run dev
 ```
 
 Frontend dostępny na `http://localhost:3000`, backend na `http://localhost:8080`.
+
+---
+
+## Konfiguracja e-mail
+
+Domyślnie wysyłka maili jest **wyłączona**. Żeby ją włączyć, odkomentuj i uzupełnij sekcję e-mail w `docker-compose.env`.
+
+### Gmail / port 587 (STARTTLS)
+
+```env
+MAIL_ENABLED=true
+MAIL_FROM=faktury@twojafirma.pl
+MAIL_HOST=smtp.gmail.com
+MAIL_PORT=587
+MAIL_USERNAME=twoj@gmail.com
+MAIL_PASSWORD=haslo-aplikacji-google   # hasło aplikacji, nie hasło konta!
+MAIL_SSL=false
+MAIL_STARTTLS=true
+```
+
+> Dla Gmaila wymagane jest **hasło aplikacji** (nie hasło do konta Google).
+> Wygeneruj je na: [myaccount.google.com/apppasswords](https://myaccount.google.com/apppasswords)
+
+### SMTP over SSL / port 465
+
+```env
+MAIL_ENABLED=true
+MAIL_FROM=faktury@twojafirma.pl
+MAIL_HOST=smtp.twojdostawca.pl
+MAIL_PORT=465
+MAIL_USERNAME=faktury@twojafirma.pl
+MAIL_PASSWORD=haslo
+MAIL_SSL=true
+MAIL_STARTTLS=false
+```
+
+Po zmianie w `.env` zrestartuj backend (rebuild nie jest potrzebny):
+
+```bash
+docker-compose --env-file docker-compose.env up -d backend
+```
+
+### Weryfikacja
+
+Sprawdź logi backendu czy nie ma błędów połączenia SMTP:
+
+```bash
+docker-compose --env-file docker-compose.env logs backend | grep -i mail
+```
 
 ---
 

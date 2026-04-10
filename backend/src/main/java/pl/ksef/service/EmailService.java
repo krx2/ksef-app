@@ -58,6 +58,18 @@ public class EmailService {
         }
     }
 
+    /**
+     * Konwertuje Base64 (standard) na Base64 URL-safe wymagane przez wizualizator KSeF v2.
+     * Zamiana: '+' → '-', '/' → '_', usuwa padding '='.
+     * Przykład: "Gv5W/7x9srR+Wn2aS+1RMMDOOoE7BAxxhFjqdoAeXV0=" → "Gv5W_7x9srR-Wn2aS-1RMMDOOoE7BAxxhFjqdoAeXV0"
+     */
+    private static String toUrlSafeBase64(String base64) {
+        return base64
+                .replace('+', '-')
+                .replace('/', '_')
+                .replace("=", "");
+    }
+
     private String formatAmount(Invoice invoice) {
         NumberFormat fmt = NumberFormat.getCurrencyInstance(new Locale("pl", "PL"));
         return fmt.format(invoice.getGrossAmount());
@@ -76,7 +88,7 @@ public class EmailService {
             viewerUrl = ksefViewerBaseUrl
                     + "/" + invoice.getSellerNip()
                     + "/" + dateFormatted
-                    + "/" + invoice.getInvoiceHash();
+                    + "/" + toUrlSafeBase64(invoice.getInvoiceHash());
         }
         String amount = formatAmount(invoice);
 

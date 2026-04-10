@@ -54,6 +54,8 @@ services:
       MAIL_USERNAME: ${MAIL_USERNAME:-}
       MAIL_PASSWORD: ${MAIL_PASSWORD:-}
       MAIL_FROM: ${MAIL_FROM:-noreply@ksef-faktury.pl}
+      MAIL_SSL: ${MAIL_SSL:-false}
+      MAIL_STARTTLS: ${MAIL_STARTTLS:-true}
     depends_on:
       postgres:
         condition: service_healthy
