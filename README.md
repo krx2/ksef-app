@@ -149,8 +149,7 @@ ksef-app/
 ├── .gitignore
 ├── ARCHITECTURE.md                   # Diagramy Mermaid
 ├── README.md                         # Ten plik
-├── SETUP.md                          # Instrukcja wdrożenia na serwer
-└── openapi.json                      # Specyfikacja KSeF API v2 (MF)
+└── SETUP.md                          # Instrukcja wdrożenia na serwer
 ```
 
 ---
