@@ -140,3 +140,12 @@ export const usersApi = {
   updateToken: (id: string, ksefToken: string) =>
     api.put(`/users/${id}/ksef-token`, { ksefToken }),
 };
+
+// ---- Config ----
+
+export type KsefEnvironment = 'test' | 'prod';
+
+export const configApi = {
+  get: () =>
+    api.get<{ ksefEnvironment: KsefEnvironment }>('/config').then(r => r.data),
+};

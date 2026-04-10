@@ -1,8 +1,8 @@
 'use client';
 
-import { useState, Suspense } from 'react';
+import { useState, useEffect, Suspense } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useSearchParams } from 'next/navigation';
+import { useSearchParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Plus, Upload, RefreshCw, Search, X } from 'lucide-react';
 import { useUser } from '@/lib/user-context';
@@ -22,10 +22,17 @@ const STATUS_LABELS: Record<InvoiceStatus, string> = {
 };
 
 function InvoicesList() {
-  const { userId, user } = useUser();
+  const { userId, user, isLoaded } = useUser();
+  const router = useRouter();
   const queryClient = useQueryClient();
   const searchParams = useSearchParams();
   const [fetchState, setFetchState] = useState<'idle' | 'loading' | 'done' | 'error'>('idle');
+
+  useEffect(() => {
+    if (isLoaded && !user) router.replace('/');
+  }, [isLoaded, user, router]);
+
+  if (!isLoaded || !user) return null;
 
   const [direction, setDirection] = useState<InvoiceDirection | undefined>(
     (searchParams.get('direction') as InvoiceDirection) || undefined

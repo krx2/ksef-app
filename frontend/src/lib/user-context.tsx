@@ -9,6 +9,7 @@ interface UserContextValue {
   setUser: (u: AppUser | null) => void;
   userId: string;
   logout: () => void;
+  isLoaded: boolean;
   newReceivedCount: number;
   clearNewInvoices: (currentTotal: number) => void;
 }
@@ -18,6 +19,7 @@ const UserContext = createContext<UserContextValue>({
   setUser: () => {},
   userId: '',
   logout: () => {},
+  isLoaded: false,
   newReceivedCount: 0,
   clearNewInvoices: () => {},
 });
@@ -27,6 +29,7 @@ const LAST_RECEIVED_KEY = 'ksef_last_received_total';
 
 export function UserProvider({ children }: { children: ReactNode }) {
   const [user, setUserState] = useState<AppUser | null>(null);
+  const [isLoaded, setIsLoaded] = useState(false);
   const [newReceivedCount, setNewReceivedCount] = useState(0);
 
   useEffect(() => {
@@ -34,6 +37,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
     if (saved) {
       try { setUserState(JSON.parse(saved)); } catch {}
     }
+    setIsLoaded(true);
   }, []);
 
   // Sprawdź nowe faktury przychodzące przy załadowaniu usera
@@ -68,7 +72,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
   };
 
   return (
-    <UserContext.Provider value={{ user, setUser, userId: user?.id ?? '', logout, newReceivedCount, clearNewInvoices }}>
+    <UserContext.Provider value={{ user, setUser, userId: user?.id ?? '', logout, isLoaded, newReceivedCount, clearNewInvoices }}>
       {children}
     </UserContext.Provider>
   );

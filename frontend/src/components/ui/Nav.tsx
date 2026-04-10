@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { FileText, Settings, Home, LogOut, AlertCircle } from 'lucide-react';
 import { useUser } from '@/lib/user-context';
 import { cn } from '@/lib/utils';
@@ -14,7 +14,13 @@ const links = [
 
 export default function Nav() {
   const pathname = usePathname();
+  const router = useRouter();
   const { user, logout, newReceivedCount } = useUser();
+
+  const handleLogout = () => {
+    logout();
+    router.push('/');
+  };
 
   return (
     <nav className="bg-white border-b border-gray-200 sticky top-0 z-40">
@@ -23,7 +29,7 @@ export default function Nav() {
           <span className="font-semibold text-brand-600 mr-4 text-sm tracking-tight">
             KSeF Faktury
           </span>
-          {links.map(({ href, label, icon: Icon }) => (
+          {user && links.map(({ href, label, icon: Icon }) => (
             <Link
               key={href}
               href={href}
@@ -50,7 +56,7 @@ export default function Nav() {
               <span className="font-medium text-gray-700">{user.companyName}</span>
               <span className="text-xs text-gray-400">NIP: {user.nip}</span>
               <button
-                onClick={logout}
+                onClick={handleLogout}
                 className="flex items-center gap-1 px-2 py-1 rounded-md text-gray-500 hover:text-red-600 hover:bg-red-50 transition-colors"
                 title="Wyloguj się"
               >
@@ -58,9 +64,6 @@ export default function Nav() {
                 <span className="text-xs">Wyloguj</span>
               </button>
             </>
-          )}
-          {!user && (
-            <span className="text-gray-400 text-xs">Nie zalogowano</span>
           )}
         </div>
       </div>

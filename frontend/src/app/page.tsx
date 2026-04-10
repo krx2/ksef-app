@@ -5,7 +5,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { FileText, Send, Inbox, AlertCircle, RefreshCw } from 'lucide-react';
 import Link from 'next/link';
 import { useUser } from '@/lib/user-context';
-import { invoicesApi } from '@/lib/api';
+import { invoicesApi, configApi } from '@/lib/api';
 import { formatPLN, formatDate } from '@/lib/utils';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import UserSetup from '@/components/forms/UserSetup';
@@ -19,7 +19,6 @@ export default function HomePage() {
   const { user, userId, newReceivedCount, clearNewInvoices } = useUser();
   const queryClient = useQueryClient();
   const [fetchState, setFetchState] = useState<'idle' | 'loading' | 'done' | 'error'>('idle');
-  const [fetchMsg, setFetchMsg] = useState('');
 
   const filters = { issueDateFrom: currentMonthStart(), size: 50 };
 
@@ -35,6 +34,12 @@ export default function HomePage() {
     enabled: !!userId,
   });
 
+  const { data: config } = useQuery({
+    queryKey: ['config'],
+    queryFn: configApi.get,
+    staleTime: Infinity,
+  });
+
   // Gdy użytkownik wchodzi na stronę główną, wyczyść alert nowych faktur
   useEffect(() => {
     if (received && newReceivedCount > 0) {
@@ -44,18 +49,16 @@ export default function HomePage() {
 
   const handleFetchFromKsef = async () => {
     setFetchState('loading');
-    setFetchMsg('');
     try {
-      const res = await invoicesApi.fetchFromKsef(userId);
-      setFetchMsg(res.message);
-      setFetchState('done');
-      // Po ~3s odśwież listy faktur
+      await invoicesApi.fetchFromKsef(userId);
       setTimeout(() => {
         queryClient.invalidateQueries({ queryKey: ['invoices', userId] });
+        setFetchState('done');
+        setTimeout(() => setFetchState('idle'), 3000);
       }, 3000);
-    } catch (err: any) {
-      setFetchMsg(err?.response?.data?.error ?? 'Błąd podczas zlecania pobierania');
+    } catch {
       setFetchState('error');
+      setTimeout(() => setFetchState('idle'), 3000);
     }
   };
 
@@ -95,17 +98,19 @@ export default function HomePage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-semibold text-gray-900">{user.companyName}</h1>
-          <p className="text-sm text-gray-500 mt-0.5">NIP: {user.nip} · Środowisko testowe KSeF</p>
+          <p className="text-sm text-gray-500 mt-0.5">
+            NIP: {user.nip} · {config?.ksefEnvironment === 'prod' ? 'Środowisko produkcyjne KSeF' : 'Środowisko testowe KSeF'}
+          </p>
         </div>
         <div className="flex items-center gap-2">
           <button
             onClick={handleFetchFromKsef}
             disabled={fetchState === 'loading' || !user?.hasKsefToken}
             title={!user?.hasKsefToken ? 'Brak tokenu KSeF — dodaj go w Konfiguracji' : 'Sprawdź nowe faktury w KSeF'}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-gray-300 text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            className="btn-secondary"
           >
-            <RefreshCw size={14} className={fetchState === 'loading' ? 'animate-spin' : ''} />
-            {fetchState === 'loading' ? 'Sprawdzanie…' : 'Sprawdź KSeF'}
+            <RefreshCw size={15} className={fetchState === 'loading' ? 'animate-spin' : ''} />
+            {fetchState === 'loading' ? 'Sprawdzanie KSeF…' : fetchState === 'done' ? 'Odświeżono ✓' : fetchState === 'error' ? 'Odświeżono' : 'Sprawdź KSeF'}
           </button>
           <Link href="/faktury/nowa" className="btn-primary">
             <FileText size={16} />
@@ -113,21 +118,6 @@ export default function HomePage() {
           </Link>
         </div>
       </div>
-
-      {/* Komunikat po ręcznym sprawdzeniu */}
-      {fetchMsg && (
-        <div className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm ${
-          fetchState === 'error'
-            ? 'bg-red-50 border border-red-200 text-red-700'
-            : 'bg-green-50 border border-green-200 text-green-700'
-        }`}>
-          {fetchState === 'error' ? <AlertCircle size={15} /> : <RefreshCw size={15} />}
-          {fetchMsg}
-          {fetchState === 'done' && (
-            <span className="text-green-600 text-xs ml-1">— lista odświeży się za chwilę</span>
-          )}
-        </div>
-      )}
 
       {/* Alert nowych faktur przychodzących */}
       {hasNewReceived && (

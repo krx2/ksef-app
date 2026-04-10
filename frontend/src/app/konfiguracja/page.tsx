@@ -1,7 +1,8 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useRouter } from 'next/navigation';
 import { Plus, Pencil, Trash2, Key } from 'lucide-react';
 import { useUser } from '@/lib/user-context';
 import { xlsxConfigsApi, usersApi } from '@/lib/api';
@@ -9,8 +10,15 @@ import XlsxConfigModal from '@/components/forms/XlsxConfigModal';
 import type { XlsxConfig } from '@/types';
 
 export default function KonfiguracjaPage() {
-  const { userId, user, setUser } = useUser();
+  const { userId, user, setUser, isLoaded } = useUser();
+  const router = useRouter();
   const qc = useQueryClient();
+
+  useEffect(() => {
+    if (isLoaded && !user) router.replace('/');
+  }, [isLoaded, user, router]);
+
+  if (!isLoaded || !user) return null;
 
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<XlsxConfig | null>(null);
