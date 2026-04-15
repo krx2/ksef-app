@@ -126,6 +126,10 @@ public class InvoiceQueueConsumer {
                     statusResp != null ? statusResp.getKsefNumber() : null,
                     statusResp != null ? statusResp.getInvoiceHash() : null);
 
+            if (emailService != null) {
+                emailService.sendInvoiceSentConfirmation(user, invoice);
+            }
+
         } catch (KsefException e) {
             log.error("KSeF error for invoice {}: {}", invoice.getId(), e.getMessage());
             invoice.setStatus(Invoice.InvoiceStatus.FAILED);
@@ -160,10 +164,17 @@ public class InvoiceQueueConsumer {
             return;
         }
 
+        String subjectType = (message.getSubjectType() != null && !message.getSubjectType().isBlank())
+                ? message.getSubjectType() : "Subject2";
+        Invoice.InvoiceDirection direction = "Subject1".equals(subjectType)
+                ? Invoice.InvoiceDirection.ISSUED
+                : Invoice.InvoiceDirection.RECEIVED;
+
         try {
             String accessToken = ksefTokenManager.getValidAccessToken(user);
 
             KsefDto.QueryMetadataRequest request = new KsefDto.QueryMetadataRequest();
+            request.setSubjectType(subjectType);
             KsefDto.QueryMetadataRequest.DateRange dateRange = new KsefDto.QueryMetadataRequest.DateRange();
             dateRange.setDateType("PermanentStorage");
             dateRange.setFrom(message.getDateFrom().toString());
@@ -204,7 +215,7 @@ public class InvoiceQueueConsumer {
                         String xml = ksefApiClient.getInvoiceContent(accessToken, meta.getKsefNumber());
 
                         // 3. Parsuj XML FA(3) → encja Invoice
-                        Invoice invoice = fa3XmlParser.parse(xml, user.getId());
+                        Invoice invoice = fa3XmlParser.parse(xml, user.getId(), direction);
 
                         // 4. Uzupełnij numer KSeF, hash i zapisz oryginalny XML
                         invoice.setKsefNumber(meta.getKsefNumber());
@@ -216,11 +227,10 @@ public class InvoiceQueueConsumer {
                         saved++;
                         log.debug("Zapisano fakturę ksefNumber={}", meta.getKsefNumber());
 
-                        // 6. Wyślij powiadomienie email (jeśli mail włączony)
-                        if (emailService != null) {
+                        // 6. Wyślij powiadomienie email (jeśli mail włączony i nie jest to import historyczny)
+                        if (emailService != null && !message.isSkipEmail()) {
                             emailService.sendNewInvoiceNotification(user, invoice);
                         }
-
                     } catch (Exception e) {
                         log.error("Błąd przetwarzania faktury ksefNumber={}: {}",
                                 meta.getKsefNumber(), e.getMessage(), e);

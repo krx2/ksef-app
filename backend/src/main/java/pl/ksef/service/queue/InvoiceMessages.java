@@ -31,5 +31,15 @@ public class InvoiceMessages {
         private String dateFrom;
         /** Patrz {@link #dateFrom} — ten sam wymóg formatu. */
         private String dateTo;
+        /**
+         * Rola podmiotu w zapytaniu KSeF: "Subject1" = wystawca (faktury wystawione),
+         * "Subject2" = nabywca (faktury odebrane). Domyślnie "Subject2".
+         */
+        private String subjectType;
+        /**
+         * Gdy {@code true} — konsumer pomija wysyłkę powiadomień email.
+         * Używane przy imporcie historycznym, gdzie masowe notyfikacje są niepożądane.
+         */
+        private boolean skipEmail;
     }
 }

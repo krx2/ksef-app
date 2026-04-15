@@ -13,6 +13,13 @@ import java.util.UUID;
 @Getter @Setter @NoArgsConstructor @AllArgsConstructor @Builder
 public class AppUser {
 
+    public enum InvoiceNumberPrefixMode {
+        /** Numer faktury bez prefiksu — domyślne zachowanie. */
+        NONE,
+        /** Numer faktury poprzedzony rokiem i miesiącem wystawienia, np. "2026/04/1". */
+        YEAR_MONTH
+    }
+
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
@@ -47,6 +54,11 @@ public class AppUser {
     /** Data ważności refresh tokenu (UTC). Po wygaśnięciu wymagany pełny re-auth. */
     @Column(name = "ksef_refresh_token_valid_until")
     private LocalDateTime ksefRefreshTokenValidUntil;
+
+    @Column(name = "invoice_number_prefix_mode", nullable = false)
+    @Enumerated(EnumType.STRING)
+    @Builder.Default
+    private InvoiceNumberPrefixMode invoicePrefixMode = InvoiceNumberPrefixMode.NONE;
 
     @CreationTimestamp
     @Column(name = "created_at", updatable = false)

@@ -4,6 +4,25 @@ Aplikacja webowa do wystawiania, odbierania i zarządzania fakturami przez API K
 
 ---
 
+## Screenshoty
+
+**Rejestracja**
+![Rejestracja](docs/screenshots/rejestracja.png)
+
+**Strona główna**
+![Strona główna](docs/screenshots/strona-glowna.png)
+
+**Faktury**
+![Faktury](docs/screenshots/faktury.png)
+
+**Raporty**
+![Raporty](docs/screenshots/raporty.png)
+
+**Konfiguracja**
+![Konfiguracja](docs/screenshots/konfiguracja.png)
+
+---
+
 ## Spis treści
 
 1. [Opis funkcjonalny](#1-opis-funkcjonalny)
@@ -103,29 +122,34 @@ ksef-app/
 ├── backend/                          # Spring Boot
 │   ├── .env                          # Sekrety (NIE w git)
 │   └── src/main/java/pl/ksef/
-│       ├── controller/               # REST: Invoice, User, XlsxConfig
+│       ├── controller/               # REST: Invoice, User, XlsxConfig, NotificationEmail, Report, Config
 │       ├── service/
 │       │   ├── InvoiceService.java
-│       │   ├── EmailService.java     # Opcjonalne powiadomienia
+│       │   ├── EmailService.java         # Opcjonalne powiadomienia
 │       │   ├── XlsxParserService.java
 │       │   ├── XlsxConfigService.java
-│       │   └── queue/                # Publisher, Consumer, DlqConsumer
-│       ├── ksef/                     # Integracja z API KSeF
+│       │   ├── MonthlyReportService.java # Generowanie PDF raportu miesięcznego
+│       │   ├── KsefPdfService.java       # Placeholder — oficjalne PDF KSeF (zablokowane F6/F7)
+│       │   └── queue/                    # Publisher, Consumer, DlqConsumer
+│       ├── ksef/                         # Integracja z API KSeF
 │       │   ├── KsefApiClient.java
 │       │   ├── KsefTokenManager.java
 │       │   ├── KsefEncryptionService.java
 │       │   ├── Fa3XmlBuilder.java
 │       │   ├── Fa3XmlParser.java
 │       │   └── Fa3Validator.java
-│       ├── entity/                   # JPA: AppUser, Invoice, InvoiceItem, XlsxConfiguration
+│       ├── entity/                   # JPA: AppUser, Invoice, InvoiceItem, XlsxConfiguration, UserNotificationEmail
+│       ├── repository/               # InvoiceRepository, UserRepository, XlsxConfigurationRepository, UserNotificationEmailRepository
 │       ├── dto/                      # InvoiceDto, KsefDto, XlsxConfigDto
 │       ├── config/                   # WebConfig (CORS), RabbitMQConfig, KsefClientConfig
 │       └── exception/                # GlobalExceptionHandler
 │   └── src/main/resources/
 │       ├── application.yml           # Konfiguracja (ze zmiennymi środowiskowymi)
+│       ├── fonts/                    # DejaVuSans.ttf, DejaVuSans-Bold.ttf (PDF)
 │       └── db/migration/
-│           ├── V1__init_schema.sql   # Schemat bazowy
-│           └── V2__add_fa3_adnotacje_fields.sql
+│           ├── V1__init_schema.sql              # Schemat bazowy
+│           ├── V2__user_invoice_prefix.sql      # Tryb prefiksu numeru faktury
+│           └── V3__user_notification_emails.sql # Tabela adresów powiadomień
 │
 ├── frontend/                         # Next.js
 │   ├── .env.local                    # Konfiguracja lokalna (NIE w git)
@@ -135,7 +159,8 @@ ksef-app/
 │       │   ├── page.tsx              # Dashboard
 │       │   ├── faktury/page.tsx      # Lista faktur
 │       │   ├── faktury/nowa/page.tsx # Nowa faktura (formularz / XLSX)
-│       │   └── konfiguracja/page.tsx # Token KSeF + konfiguracje XLSX
+│       │   ├── raporty/page.tsx      # Generowanie raportu miesięcznego PDF
+│       │   └── konfiguracja/page.tsx # Token KSeF, prefiks, e-maile, konfiguracje XLSX
 │       ├── components/               # Nav, StatusBadge, formularze, modale
 │       ├── lib/
 │       │   ├── api.ts                # Axios client + wszystkie endpointy
@@ -156,15 +181,18 @@ ksef-app/
 
 ## 5. Backend — szczegóły
 
-### Kontrolery REST (3)
+### Kontrolery REST (6)
 
 | Kontroler | Ścieżka bazowa | Opis |
 |-----------|----------------|------|
 | `InvoiceController` | `/api/invoices` | CRUD faktur, upload XLSX, wysyłka do KSeF |
-| `UserController` | `/api/users` | Rejestracja, logowanie przez NIP, token KSeF |
+| `UserController` | `/api/users` | Rejestracja, logowanie przez NIP, token KSeF, tryb prefiksu |
 | `XlsxConfigController` | `/api/xlsx-configs` | Konfiguracje mapowań XLSX |
+| `NotificationEmailController` | `/api/notification-emails` | Zarządzanie adresami e-mail powiadomień |
+| `ReportController` | `/api/reports` | Generowanie raportu miesięcznego (lista + PDF) |
+| `ConfigController` | `/api/config` | Informacja o aktywnym środowisku KSeF |
 
-Wszystkie endpointy chronione nagłówkiem `X-User-Id` (UUID użytkownika).
+Wszystkie endpointy (poza `/api/users` i `/api/config`) wymagają nagłówka `X-User-Id` (UUID użytkownika).
 
 ### Serwisy kluczowe
 
@@ -174,11 +202,15 @@ Wszystkie endpointy chronione nagłówkiem `X-User-Id` (UUID użytkownika).
 
 **Fa3Validator** — waliduje NIPy, daty, kody walut, stawki VAT, wymagane pola przed wysyłką.
 
-**KsefApiClient** — klient HTTP do API KSeF: challenge-based auth, szyfrowanie payloadu AES-256-CBC, upload, polling statusu, pobieranie faktur przychodzących.
+**KsefApiClient** — klient HTTP do API KSeF: challenge-based auth, szyfrowanie payloadu AES-256-CBC (klucz publiczny MF), upload, polling statusu, pobieranie faktur przychodzących.
 
-**XlsxParserService** — czyta komórki z pliku `.xlsx`/`.xls` przez Apache POI zgodnie z zapisaną konfiguracją mapowań.
+**KsefTokenManager** — zarządza cyklem życia tokenu KSeF: cache → refresh → pełna re-autoryzacja.
 
-**EmailService** — opcjonalne powiadomienia HTML o nowych fakturach przychodzących (aktywowane przez `MAIL_ENABLED=true`).
+**XlsxParserService** — czyta komórki z pliku `.xlsx`/`.xls` przez Apache POI zgodnie z zapisaną konfiguracją mapowań. Obsługuje tryby CELL, MULTI_CELL i VALUE.
+
+**MonthlyReportService** — generuje PDF raportu miesięcznego (tabela faktur + sumy VAT) za pomocą biblioteki OpenPDF.
+
+**EmailService** — opcjonalne powiadomienia HTML o nowych fakturach przychodzących i potwierdzenia wysyłki (aktywowane przez `MAIL_ENABLED=true`).
 
 ### Obsługa błędów
 
@@ -195,7 +227,8 @@ Wszystkie endpointy chronione nagłówkiem `X-User-Id` (UUID użytkownika).
 | `/` | Dashboard | Statystyki miesiąca, ostatnie faktury, przycisk synchronizacji KSeF |
 | `/faktury` | Lista faktur | Filtry: kierunek, status, typ, tekst, zakres dat; paginacja |
 | `/faktury/nowa` | Nowa faktura | Zakładki: formularz ręczny lub upload XLSX z wyborem konfiguracji |
-| `/konfiguracja` | Ustawienia | Token KSeF, zarządzanie konfiguracjami XLSX (CRUD + test komórek) |
+| `/raporty` | Raporty | Generowanie i pobieranie raportu miesięcznego w formacie PDF |
+| `/konfiguracja` | Ustawienia | Token KSeF, tryb prefiksu numeru, adresy e-mail powiadomień, konfiguracje XLSX |
 
 ### Przepływ użytkownika — pierwsze uruchomienie
 
@@ -228,10 +261,11 @@ Przycisk **Testuj** — wgraj przykładowy plik i sprawdź podgląd wartości z 
 
 | Tabela | Zawartość |
 |--------|-----------|
-| `users` | Użytkownicy: email, NIP, nazwa firmy, token KSeF |
-| `invoices` | Faktury: dane FA(3), status, kierunek, XML, numer KSeF |
+| `users` | Użytkownicy: email, NIP, nazwa firmy, token KSeF, tryb prefiksu numeru faktury |
+| `invoices` | Faktury: dane FA(3), status, kierunek, XML, numer KSeF, hash faktury |
 | `invoice_items` | Pozycje faktur (do 10 na fakturę) |
 | `xlsx_configurations` | Konfiguracje mapowań XLSX (field_mappings jako JSONB) |
+| `user_notification_emails` | Dodatkowe adresy e-mail powiadomień per użytkownik |
 
 Pełny schemat ERD — patrz [ARCHITECTURE.md](ARCHITECTURE.md) (diagram 9).
 
@@ -317,7 +351,7 @@ Obsługiwane konfiguracje:
 
 ## 11. API — pełna lista endpointów
 
-> Wszystkie endpointy (poza `/api/users`) wymagają nagłówka: `X-User-Id: <uuid-użytkownika>`
+> Wszystkie endpointy (poza `/api/users` i `/api/config`) wymagają nagłówka: `X-User-Id: <uuid-użytkownika>`
 
 ### Faktury `/api/invoices`
 
@@ -362,6 +396,30 @@ GET    /api/users/by-nip/{nip}           Znajdź użytkownika po NIP (logowanie)
 GET    /api/users/{id}                   Dane użytkownika
 POST   /api/users                        Rejestracja nowego użytkownika
 PUT    /api/users/{id}/ksef-token        Aktualizacja tokenu KSeF
+PUT    /api/users/{id}/invoice-prefix-mode  Tryb prefiksu numeru faktury (NONE | YEAR_MONTH)
+```
+
+### Adresy e-mail powiadomień `/api/notification-emails`
+
+```
+GET    /api/notification-emails          Lista adresów dla użytkownika
+POST   /api/notification-emails          Dodaj adres e-mail
+DELETE /api/notification-emails/{id}     Usuń adres e-mail
+```
+
+### Raporty `/api/reports`
+
+```
+GET    /api/reports                      Lista faktur za miesiąc
+       ?year=2025&month=4
+POST   /api/reports/generate-pdf         Pobierz raport miesięczny jako PDF
+       body: { year, month }
+```
+
+### Konfiguracja środowiska `/api/config`
+
+```
+GET    /api/config/environment           Aktywne środowisko KSeF (test | prod)
 ```
 
 ---
@@ -382,13 +440,15 @@ PUT    /api/users/{id}/ksef-token        Aktualizacja tokenu KSeF
 | `RABBITMQ_PORT` | `5672` | Port AMQP |
 | `RABBITMQ_USER` | `ksef_user` | Użytkownik RabbitMQ |
 | `RABBITMQ_PASS` | — | Hasło RabbitMQ (wymagane) |
-| `CORS_ALLOWED_ORIGINS` | `http://localhost:3000` | Dozwolone originy CORS |
+| `CORS_ALLOWED_ORIGIN_PATTERNS` | `http://localhost:3000` | Dozwolone originy CORS (np. `http://192.168.1.100:3000`) |
 | `MAIL_ENABLED` | `false` | Włącz powiadomienia e-mail |
 | `MAIL_HOST` | `smtp.gmail.com` | Serwer SMTP |
 | `MAIL_PORT` | `587` | Port SMTP |
 | `MAIL_USERNAME` | — | Login SMTP |
 | `MAIL_PASSWORD` | — | Hasło SMTP |
 | `MAIL_FROM` | `noreply@ksef-faktury.pl` | Adres nadawcy |
+| `MAIL_SSL` | `false` | SSL (port 465) |
+| `MAIL_STARTTLS` | `true` | STARTTLS (port 587) |
 
 #### Przełączanie środowiska KSeF — profil `SPRING_PROFILES_ACTIVE`
 
@@ -432,12 +492,12 @@ Konfiguracja każdego profilu w plikach:
 ### Uruchomienie
 
 ```bash
-# 1. Infrastruktura
-docker-compose --env-file docker-compose.env up -d
+# 1. Infrastruktura (PostgreSQL + RabbitMQ)
+docker-compose --env-file docker-compose.env up -d postgres rabbitmq
 
 # 2. Backend (IntelliJ IDEA lub terminal)
 cd backend
-# Załaduj zmienne z .env, następnie:
+# Załaduj zmienne środowiskowe z docker-compose.env, następnie:
 ./mvnw spring-boot:run
 # Backend: http://localhost:8080
 
@@ -489,7 +549,6 @@ Skrót:
 - [ ] Szyfrowanie tokenów KSeF w bazie (JPA AttributeConverter AES-256)
 - [ ] Mechanizm retry dla faktur FAILED
 - [ ] Zwiększenie limitu pozycji powyżej 10
-- [ ] Generowanie PDF z faktury
+- [ ] Generowanie oficjalnego PDF z faktury KSeF (zablokowane — biblioteka `ksef-pdf-generator` niedostępna w Maven Central)
 - [ ] Eksport listy faktur do XLSX
-- [ ] Raport miesięczny e-mailem
 - [ ] Obsługa certyfikatu kwalifikowanego (alternatywa dla tokenu KSeF)

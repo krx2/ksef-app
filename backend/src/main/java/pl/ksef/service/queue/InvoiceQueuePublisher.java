@@ -38,8 +38,18 @@ public class InvoiceQueuePublisher {
     }
 
     public void publishFetchInvoices(UUID userId, String dateFrom, String dateTo) {
-        var message = new InvoiceMessages.FetchInvoicesMessage(userId, dateFrom, dateTo);
+        publishFetchInvoices(userId, dateFrom, dateTo, false);
+    }
+
+    public void publishFetchInvoices(UUID userId, String dateFrom, String dateTo, boolean skipEmail) {
+        publishFetchInvoices(userId, dateFrom, dateTo, "Subject2", skipEmail);
+    }
+
+    public void publishFetchInvoices(UUID userId, String dateFrom, String dateTo,
+                                     String subjectType, boolean skipEmail) {
+        var message = new InvoiceMessages.FetchInvoicesMessage(userId, dateFrom, dateTo, subjectType, skipEmail);
         rabbitTemplate.convertAndSend(RabbitMQConfig.INVOICE_FETCH_QUEUE, message);
-        log.info("Published FetchInvoicesMessage for userId={}", userId);
+        log.info("Published FetchInvoicesMessage for userId={}, subjectType={}, skipEmail={}",
+                userId, subjectType, skipEmail);
     }
 }

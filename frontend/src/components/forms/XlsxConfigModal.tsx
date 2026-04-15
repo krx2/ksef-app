@@ -13,6 +13,7 @@ import {
   type VatRateCode,
   type XlsxConfig,
   type FieldMapping,
+  type CellRef,
 } from '@/types';
 
 const COMMON_CURRENCIES = ['PLN', 'EUR', 'USD', 'GBP', 'CHF', 'CZK', 'NOK', 'SEK', 'DKK', 'HUF'];
@@ -74,6 +75,28 @@ export default function XlsxConfigModal({ config, onClose, onSaved }: Props) {
   const setMapping = (key: string, patch: Partial<FieldMapping>) =>
     setMappings(prev => ({ ...prev, [key]: { ...prev[key], ...patch } as FieldMapping }));
 
+  const addCellToMulti = (fieldKey: string) =>
+    setMappings(prev => ({
+      ...prev,
+      [fieldKey]: {
+        ...prev[fieldKey],
+        cells: [...(prev[fieldKey].cells ?? []), { cellRef: '', sheetIndex: 0 }],
+      } as FieldMapping,
+    }));
+
+  const updateCellInMulti = (fieldKey: string, index: number, patch: Partial<CellRef>) =>
+    setMappings(prev => {
+      const cells = [...(prev[fieldKey].cells ?? [])];
+      cells[index] = { ...cells[index], ...patch };
+      return { ...prev, [fieldKey]: { ...prev[fieldKey], cells } as FieldMapping };
+    });
+
+  const removeCellFromMulti = (fieldKey: string, index: number) =>
+    setMappings(prev => {
+      const cells = (prev[fieldKey].cells ?? []).filter((_, i) => i !== index);
+      return { ...prev, [fieldKey]: { ...prev[fieldKey], cells } as FieldMapping };
+    });
+
   const testCell = async (fieldKey: string) => {
     const mapping = mappings[fieldKey];
     if (!previewFile || mapping.type !== 'CELL' || !mapping.cellRef) return;
@@ -95,6 +118,21 @@ export default function XlsxConfigModal({ config, onClose, onSaved }: Props) {
     }
   };
 
+  const testMultiCell = async (fieldKey: string, idx: number, cellRef: string, sheetIndex: number) => {
+    if (!previewFile || !cellRef || !userId) return;
+    const key = `${fieldKey}__${idx}`;
+    setTestingField(key);
+    try {
+      const result = await xlsxConfigsApi.testCell(userId, previewFile, cellRef, sheetIndex);
+      setTestResults(prev => ({ ...prev, [key]: result.value }));
+    } catch (err: any) {
+      const msg = err?.response?.data?.error ?? 'błąd odczytu';
+      setTestResults(prev => ({ ...prev, [key]: '⚠ ' + msg }));
+    } finally {
+      setTestingField(null);
+    }
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     // Remove empty mappings
@@ -102,6 +140,9 @@ export default function XlsxConfigModal({ config, onClose, onSaved }: Props) {
     Object.entries(mappings).forEach(([k, v]) => {
       if (v.type === 'VALUE' && v.value) cleaned[k] = v;
       if (v.type === 'CELL' && v.cellRef) cleaned[k] = v;
+      if (v.type === 'MULTI_CELL' && v.cells && v.cells.some(c => c.cellRef)) {
+        cleaned[k] = { ...v, cells: v.cells.filter(c => c.cellRef) };
+      }
     });
     mutation.mutate({ name, description, fieldMappings: cleaned });
   };
@@ -184,7 +225,8 @@ export default function XlsxConfigModal({ config, onClose, onSaved }: Props) {
               <div className="divide-y divide-gray-100 border border-gray-200 rounded-lg overflow-hidden">
                 {INVOICE_FIELDS.map(field => {
                   const mapping = mappings[field.key];
-                  const isCell = mapping.type === 'CELL';
+                  const isCell      = mapping.type === 'CELL';
+                  const isMultiCell = mapping.type === 'MULTI_CELL';
                   const testResult = testResults[field.key];
 
                   return (
@@ -196,12 +238,12 @@ export default function XlsxConfigModal({ config, onClose, onSaved }: Props) {
                       </div>
 
                       {/* Type toggle */}
-                      <div className="col-span-2 flex">
+                      <div className="col-span-3 flex">
                         <button
                           type="button"
                           onClick={() => setMapping(field.key, { type: 'VALUE' })}
                           className={`px-2 py-1 text-xs border rounded-l-md transition-colors ${
-                            !isCell
+                            !isCell && !isMultiCell
                               ? 'bg-brand-600 text-white border-brand-600'
                               : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-50'
                           }`}
@@ -211,13 +253,24 @@ export default function XlsxConfigModal({ config, onClose, onSaved }: Props) {
                         <button
                           type="button"
                           onClick={() => setMapping(field.key, { type: 'CELL' })}
-                          className={`px-2 py-1 text-xs border-t border-b border-r rounded-r-md transition-colors ${
+                          className={`px-2 py-1 text-xs border-t border-b border-r transition-colors ${
                             isCell
                               ? 'bg-brand-600 text-white border-brand-600'
                               : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-50'
                           }`}
                         >
                           Komórka
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setMapping(field.key, { type: 'MULTI_CELL', cells: [{ cellRef: '', sheetIndex: 0 }] })}
+                          className={`px-2 py-1 text-xs border-t border-b border-r rounded-r-md transition-colors ${
+                            isMultiCell
+                              ? 'bg-brand-600 text-white border-brand-600'
+                              : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-50'
+                          }`}
+                        >
+                          Wiele kom.
                         </button>
                       </div>
 
@@ -263,8 +316,62 @@ export default function XlsxConfigModal({ config, onClose, onSaved }: Props) {
                             )}
                           </div>
                         </>
+                      ) : isMultiCell ? (
+                        <div className="col-span-6 space-y-1">
+                          {(mapping.cells ?? []).map((cell, idx) => {
+                            const multiKey = `${field.key}__${idx}`;
+                            const multiResult = testResults[multiKey];
+                            return (
+                              <div key={idx} className="flex items-center gap-1 flex-wrap">
+                                <input
+                                  className="input py-1 text-xs uppercase font-mono w-20"
+                                  placeholder="A1"
+                                  value={cell.cellRef}
+                                  onChange={e => updateCellInMulti(field.key, idx, { cellRef: e.target.value.toUpperCase() })}
+                                />
+                                <input
+                                  className="input py-1 text-xs text-center w-14"
+                                  placeholder="Ark."
+                                  type="number"
+                                  min={0}
+                                  value={cell.sheetIndex ?? 0}
+                                  onChange={e => updateCellInMulti(field.key, idx, { sheetIndex: parseInt(e.target.value) || 0 })}
+                                />
+                                <button
+                                  type="button"
+                                  className="btn-secondary py-1 text-xs flex items-center gap-1"
+                                  disabled={!previewFile || !cell.cellRef || testingField === multiKey || !userId}
+                                  onClick={() => testMultiCell(field.key, idx, cell.cellRef, cell.sheetIndex ?? 0)}
+                                >
+                                  <TestTube size={11} />
+                                  {testingField === multiKey ? '…' : 'Testuj'}
+                                </button>
+                                {multiResult !== undefined && (
+                                  <span className={`text-xs ${multiResult.startsWith('⚠') ? 'text-red-500' : 'text-green-600 font-medium'}`}>
+                                    {multiResult || '(puste)'}
+                                  </span>
+                                )}
+                                <button
+                                  type="button"
+                                  className="text-gray-400 hover:text-red-500 text-xs px-1"
+                                  onClick={() => removeCellFromMulti(field.key, idx)}
+                                  title="Usuń komórkę"
+                                >
+                                  ✕
+                                </button>
+                              </div>
+                            );
+                          })}
+                          <button
+                            type="button"
+                            className="text-xs text-brand-600 hover:underline"
+                            onClick={() => addCellToMulti(field.key)}
+                          >
+                            + Dodaj komórkę
+                          </button>
+                        </div>
                       ) : (
-                        <div className="col-span-7">
+                        <div className="col-span-6">
                           {FIELD_OPTIONS[field.key] ? (
                             <select
                               className="input py-1 text-xs"

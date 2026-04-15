@@ -39,6 +39,9 @@ graph TD
         IC[InvoiceController]
         UC[UserController]
         XC[XlsxConfigController]
+        NEC[NotificationEmailController]
+        RC[ReportController]
+        CC[ConfigController]
     end
 
     subgraph Services
@@ -46,8 +49,12 @@ graph TD
         XPS[XlsxParserService]
         XCS[XlsxConfigService]
         F3V[Fa3Validator]
-        FXB[Fa2XmlBuilder\n<small>generuje XML FA 3</small>]
+        FXB[Fa3XmlBuilder\ngeneruje XML FA 3]
         KAC[KsefApiClient]
+        KTM[KsefTokenManager]
+        KES[KsefEncryptionService]
+        MRS[MonthlyReportService]
+        ES[EmailService]
     end
 
     subgraph Queue
@@ -59,6 +66,7 @@ graph TD
         IR[InvoiceRepository]
         UR[UserRepository]
         XCR[XlsxConfigurationRepository]
+        NEUR[UserNotificationEmailRepository]
     end
 
     subgraph DB["PostgreSQL"]
@@ -66,6 +74,7 @@ graph TD
         T_ITM[(invoice_items)]
         T_USR[(users)]
         T_CFG[(xlsx_configurations)]
+        T_NEU[(user_notification_emails)]
     end
 
     IC --> IS
@@ -75,6 +84,8 @@ graph TD
     XC --> XCS
     XC --> XPS
     UC --> UR
+    NEC --> NEUR
+    RC --> MRS
 
     IS --> F3V
     IS --> FXB
@@ -87,11 +98,15 @@ graph TD
     IQC --> IS
     IQC --> UR
     IQC --> KAC
+    IQC --> ES
+    KAC --> KTM
+    KAC --> KES
 
     IR --> T_INV
     IR --> T_ITM
     UR --> T_USR
     XCR --> T_CFG
+    NEUR --> T_NEU
 ```
 
 ---
@@ -115,7 +130,7 @@ flowchart LR
         F --> G[Fa3Validator\nwalidacja NIP, dat,\nkurencji, stawek VAT]
         G -->|błędy → 400| C
         G -->|OK| H[Oblicz kwoty\nnetto, VAT, brutto]
-        H --> I[Fa2XmlBuilder\ngeneruj XML FA 3]
+        H --> I[Fa3XmlBuilder\ngeneruj XML FA 3]
         I --> J[(DB: QUEUED\n+ fa2_xml)]
     end
 
@@ -177,10 +192,10 @@ stateDiagram-v2
     SENDING --> FAILED : błąd API KSeF\nlub timeout pollingu
     FAILED --> QUEUED : retry\n(nie zaimplementowane)
 
-    note right of SENT : ksefNumber uzupełniony
+    note right of SENT : ksefNumber + invoiceHash uzupełniony
     note right of FAILED : errorMessage uzupełniony
 
-    [*] --> RECEIVED_FROM_KSEF : pobieranie\n[nie zaimplementowane]
+    [*] --> RECEIVED_FROM_KSEF : automatyczne pobieranie\n(co 2h lub na żądanie)
 ```
 
 ---
@@ -212,7 +227,7 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    A[InvoiceService\ncreateAndQueue] --> B[Fa2XmlBuilder.build]
+    A[InvoiceService\ncreateAndQueue] --> B[Fa3XmlBuilder.build]
 
     B --> C[Nagłówek\nKodFormularza, WariantFormularza\nDataWytworzeniaFa UTC/Z]
     B --> D[Podmiot1 – Sprzedawca\nNIP, Nazwa, KodKraju, Adres]
@@ -286,6 +301,9 @@ erDiagram
         VARCHAR nip
         VARCHAR company_name
         TEXT ksef_token
+        TEXT ksef_access_token
+        TEXT ksef_refresh_token
+        VARCHAR invoice_number_prefix_mode "NONE|YEAR_MONTH"
         TIMESTAMP created_at
         TIMESTAMP updated_at
     }
@@ -313,7 +331,8 @@ erDiagram
         NUMERIC vat_amount
         NUMERIC gross_amount
         VARCHAR currency
-        TEXT fa2_xml
+        TEXT fa2_xml "XML FA(3) faktury"
+        VARCHAR invoice_hash "SHA-256 z KSeF (QR URL)"
         TEXT error_message
         VARCHAR rodzaj_faktury "VAT|KOR|ZAL|ROZ|UPR|KOR_ZAL|KOR_ROZ"
         BOOLEAN metoda_kasowa
@@ -347,7 +366,15 @@ erDiagram
         TIMESTAMP updated_at
     }
 
+    user_notification_emails {
+        UUID id PK
+        UUID user_id FK
+        VARCHAR email UK
+        TIMESTAMP created_at
+    }
+
     users ||--o{ invoices : "posiada"
     users ||--o{ xlsx_configurations : "posiada"
+    users ||--o{ user_notification_emails : "posiada"
     invoices ||--|{ invoice_items : "zawiera"
 ```

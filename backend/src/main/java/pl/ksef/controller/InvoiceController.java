@@ -2,6 +2,9 @@ package pl.ksef.controller;
 
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.ContentDisposition;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
@@ -16,6 +19,7 @@ import java.time.format.DateTimeFormatter;
 import pl.ksef.entity.AppUser;
 import pl.ksef.repository.UserRepository;
 import pl.ksef.service.InvoiceService;
+import pl.ksef.service.KsefPdfService;
 import pl.ksef.service.XlsxConfigService;
 import pl.ksef.service.XlsxParserService;
 import pl.ksef.service.queue.InvoiceQueuePublisher;
@@ -23,12 +27,8 @@ import pl.ksef.service.queue.InvoiceQueuePublisher;
 import java.util.Map;
 import java.util.UUID;
 
-// TODO: Brak mechanizmu autentykacji i autoryzacji.
-//       Nagłówek X-User-Id jest przyjmowany bez weryfikacji — każdy klient może podać dowolny UUID
-//       i działać w kontekście innego użytkownika. Przed wdrożeniem produkcyjnym należy:
-//       1. Dodać Spring Security z JWT (lub session cookies).
-//       2. Usunąć X-User-Id z nagłówka — userId pobierać z tokenu JWT (Principal / SecurityContext).
-//       3. Dodać @PreAuthorize lub filter weryfikujący, że userId z tokenu == userId w żądaniu.
+// SECURITY: Brak autentykacji i autoryzacji — X-User-Id przyjmowany bez weryfikacji.
+//   Przed wdrożeniem produkcyjnym dodać Spring Security + JWT i usunąć nagłówek X-User-Id.
 @RestController
 @RequestMapping("/api/invoices")
 @RequiredArgsConstructor
@@ -39,6 +39,8 @@ public class InvoiceController {
     private final XlsxConfigService xlsxConfigService;
     private final InvoiceQueuePublisher queuePublisher;
     private final UserRepository userRepository;
+    // TODO(F7): Wstrzyknąć KsefPdfService gdy ksef-pdf-generator zostanie zintegrowany.
+    //   private final KsefPdfService ksefPdfService;
 
     /**
      * Pobiera paginowaną listę faktur użytkownika z opcjonalnym filtrowaniem.
@@ -138,6 +140,59 @@ public class InvoiceController {
         return ResponseEntity.accepted()
                 .body(Map.of("message", "Pobieranie faktur z KSeF zostało zlecone"));
     }
+
+    /**
+     * Import historyczny faktur z KSeF — pobiera wszystkie faktury od daty startu systemu
+     * (2026-02-01) do bieżącej chwili. Pomija powiadomienia email.
+     * Zwraca 202 Accepted natychmiast — faktyczne pobieranie odbywa się asynchronicznie przez RabbitMQ.
+     */
+    @PostMapping("/fetch-history")
+    public ResponseEntity<Map<String, String>> fetchHistoryFromKsef(
+            @RequestHeader("X-User-Id") UUID userId) {
+
+        AppUser user = userRepository.findById(userId)
+                .orElseThrow(() -> new pl.ksef.exception.ResourceNotFoundException("User not found: " + userId));
+
+        if (user.getKsefToken() == null || user.getKsefToken().isBlank()) {
+            return ResponseEntity.badRequest()
+                    .body(Map.of("error", "Brak tokenu KSeF — skonfiguruj go w ustawieniach konta"));
+        }
+
+        String dateFrom = LocalDate.parse("2026-02-01").atStartOfDay()
+                .format(DateTimeFormatter.ISO_LOCAL_DATE_TIME) + "Z";
+        String dateTo   = LocalDateTime.now().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME) + "Z";
+
+        // Dwie wiadomości: odebrane (Subject2) i wystawione (Subject1)
+        queuePublisher.publishFetchInvoices(userId, dateFrom, dateTo, "Subject2", true);
+        queuePublisher.publishFetchInvoices(userId, dateFrom, dateTo, "Subject1", true);
+
+        return ResponseEntity.accepted()
+                .body(Map.of("message", "Import historyczny faktur z KSeF został zlecony"));
+    }
+
+    /**
+     * TODO(F7): Pobieranie oficjalnego PDF faktury z KSeF.
+     *   Endpoint aktywować gdy KsefPdfService.generatePdfBytes() będzie zaimplementowany.
+     *
+     *   GET /api/invoices/{id}/pdf
+     *   - Wymaga statusu SENT i obecności ksefNumber
+     *   - Pobiera XML z KSeF → generuje PDF przez ksef-pdf-generator
+     *   - Zwraca plik jako attachment z nazwą "faktura-{ksefNumber}.pdf"
+     *
+     * @GetMapping("/{id}/pdf")
+     * public ResponseEntity<byte[]> downloadPdf(
+     *         @RequestHeader("X-User-Id") UUID userId,
+     *         @PathVariable UUID id) {
+     *     byte[] pdf = ksefPdfService.generatePdfForInvoice(id, userId);
+     *     String ksefNumber = invoiceService.getById(id, userId).getKsefNumber();
+     *     String filename = "faktura-" + (ksefNumber != null ? ksefNumber : id) + ".pdf";
+     *     HttpHeaders headers = new HttpHeaders();
+     *     headers.setContentType(MediaType.APPLICATION_PDF);
+     *     headers.setContentDisposition(ContentDisposition.attachment().filename(filename).build());
+     *     headers.setContentLength(pdf.length);
+     *     return ResponseEntity.ok().headers(headers).body(pdf);
+     * }
+     */
 
     /** Preview XLSX parse result without creating invoice */
     @PostMapping("/xlsx-preview")

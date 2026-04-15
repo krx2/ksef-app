@@ -16,7 +16,9 @@ export default function UserSetup() {
   const [loginError, setLoginError] = useState('');
 
   // Register state
-  const [form, setForm] = useState({ email: '', nip: '', companyName: '', ksefToken: '' });
+  const [form, setForm] = useState<{ email: string; nip: string; companyName: string; ksefToken: string; invoicePrefixMode: 'NONE' | 'YEAR_MONTH' }>(
+    { email: '', nip: '', companyName: '', ksefToken: '', invoicePrefixMode: 'NONE' }
+  );
   const [registerLoading, setRegisterLoading] = useState(false);
   const [registerError, setRegisterError] = useState('');
 
@@ -117,6 +119,18 @@ export default function UserSetup() {
                 <input className="input" type="password"
                   placeholder="Możesz dodać później w Konfiguracji"
                   value={form.ksefToken} onChange={e => setForm(f => ({ ...f, ksefToken: e.target.value }))} />
+              </div>
+
+              <div>
+                <label className="label">Format numeru faktury</label>
+                <select
+                  className="input"
+                  value={form.invoicePrefixMode}
+                  onChange={e => setForm(f => ({ ...f, invoicePrefixMode: e.target.value as 'NONE' | 'YEAR_MONTH' }))}
+                >
+                  <option value="NONE">Bez prefiksu (np. 1, 2, 3)</option>
+                  <option value="YEAR_MONTH">Rok/Miesiąc (np. 2026/04/1)</option>
+                </select>
               </div>
 
               {registerError && <p className="text-sm text-red-600">{registerError}</p>}

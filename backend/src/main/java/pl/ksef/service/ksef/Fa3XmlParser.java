@@ -38,14 +38,16 @@ public class Fa3XmlParser {
 
     /**
      * Parsuje XML FA(3) i buduje encję Invoice.
-     * Ustawia direction=RECEIVED, status=RECEIVED_FROM_KSEF, source=KSEF.
+     * Ustawia status=RECEIVED_FROM_KSEF, source=KSEF.
+     * Kierunek faktury określany jest przez parametr {@code direction}.
      *
-     * @param xml    surowy XML FA(3) w UTF-8
-     * @param userId właściciel faktury (użytkownik KSeF, który pobrał fakturę)
+     * @param xml       surowy XML FA(3) w UTF-8
+     * @param userId    właściciel faktury (użytkownik KSeF, który pobrał fakturę)
+     * @param direction kierunek faktury: RECEIVED (nabywca) lub ISSUED (wystawca)
      * @return encja Invoice z wypełnionymi pozycjami — niezapisana do bazy
      * @throws KsefException jeśli XML jest niepoprawny lub brakuje wymaganych pól
      */
-    public Invoice parse(String xml, UUID userId) {
+    public Invoice parse(String xml, UUID userId, Invoice.InvoiceDirection direction) {
         try {
             DocumentBuilderFactory dbf = DocumentBuilderFactory.newInstance();
             dbf.setNamespaceAware(true);
@@ -64,7 +66,7 @@ public class Fa3XmlParser {
 
             Invoice invoice = new Invoice();
             invoice.setUserId(userId);
-            invoice.setDirection(Invoice.InvoiceDirection.RECEIVED);
+            invoice.setDirection(direction);
             invoice.setStatus(Invoice.InvoiceStatus.RECEIVED_FROM_KSEF);
             invoice.setSource(Invoice.InvoiceSource.KSEF);
 

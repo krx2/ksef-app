@@ -8,6 +8,7 @@ import org.hibernate.annotations.UpdateTimestamp;
 import org.hibernate.type.SqlTypes;
 
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -50,10 +51,26 @@ public class XlsxConfiguration {
     @AllArgsConstructor
     public static class FieldMapping {
         private MappingType type;
-        private String value;      // used when type=VALUE
-        private String cellRef;    // e.g. "A1", "B5" — used when type=CELL
+        private String value;       // used when type=VALUE
+        private String cellRef;     // e.g. "A1", "B5" — used when type=CELL
         private Integer sheetIndex; // 0-based, default 0
 
-        public enum MappingType { VALUE, CELL }
+        /** Lista komórek do złączenia przecinkami — używana gdy type=MULTI_CELL. */
+        private List<CellRef> cells;
+
+        public enum MappingType {
+            VALUE,
+            CELL,
+            MULTI_CELL
+        }
+
+        /** Referecja do pojedynczej komórki w trybie MULTI_CELL. */
+        @lombok.Data
+        @NoArgsConstructor
+        @AllArgsConstructor
+        public static class CellRef {
+            private String cellRef;     // e.g. "A1", "C3"
+            private Integer sheetIndex; // 0-based, default 0
+        }
     }
 }

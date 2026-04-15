@@ -109,6 +109,31 @@
             <artifactId>spring-boot-starter-test</artifactId>
             <scope>test</scope>
         </dependency>
+
+        <!-- OpenPDF — generowanie raportów PDF (open-source fork iText 4, licencja LGPL/MPL) -->
+        <dependency>
+            <groupId>com.github.librepdf</groupId>
+            <artifactId>openpdf</artifactId>
+            <version>2.0.3</version>
+        </dependency>
+
+        <!--
+        TODO(F6/F7): Dodać ksef-pdf-generator do generowania oficjalnych PDF-ów faktur KSeF.
+             Repozytorium: https://github.com/CIRFMF/ksef-pdf-generator
+             KROKI:
+             1. Sprawdzić dostępność w Maven Central (szukaj groupId/artifactId w README repozytorium).
+             2. Jeśli niedostępne jako artefakt — zbudować lokalnie:
+                  git clone https://github.com/CIRFMF/ksef-pdf-generator
+                  cd ksef-pdf-generator && mvn install
+                Następnie odkomentować poniżej (groupId/artifactId/version do weryfikacji z pom.xml biblioteki).
+             3. Po weryfikacji uzupełnić KsefPdfService.generatePdfBytes() właściwym wywołaniem API.
+
+        <dependency>
+            <groupId>pl.gov.mf.ksef</groupId>
+            <artifactId>ksef-pdf-generator</artifactId>
+            <version>SPRAWDZ_W_README</version>
+        </dependency>
+        -->
     </dependencies>
 
     <build>

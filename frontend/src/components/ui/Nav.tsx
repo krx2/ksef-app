@@ -2,13 +2,14 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { FileText, Settings, Home, LogOut, AlertCircle } from 'lucide-react';
+import { FileText, Settings, Home, LogOut, AlertCircle, BarChart2 } from 'lucide-react';
 import { useUser } from '@/lib/user-context';
 import { cn } from '@/lib/utils';
 
 const links = [
   { href: '/',             label: 'Strona główna', icon: Home },
   { href: '/faktury',      label: 'Faktury',       icon: FileText },
+  { href: '/raporty',      label: 'Raporty',       icon: BarChart2 },
   { href: '/konfiguracja', label: 'Konfiguracja',  icon: Settings },
 ];
 

@@ -10,6 +10,7 @@ import pl.ksef.entity.Invoice;
 import pl.ksef.entity.Invoice.InvoiceDirection;
 import pl.ksef.entity.Invoice.InvoiceStatus;
 
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -36,4 +37,7 @@ public interface InvoiceRepository extends JpaRepository<Invoice, UUID>,
      */
     @Query("SELECT i FROM Invoice i LEFT JOIN FETCH i.items WHERE i.id = :id")
     Optional<Invoice> findByIdWithItems(@Param("id") UUID id);
+
+    List<Invoice> findByUserIdAndIssueDateBetweenOrderByIssueDateAsc(
+            UUID userId, LocalDate from, LocalDate to);
 }

@@ -30,9 +30,7 @@ public class UserController {
 
     @GetMapping("/{id}")
     public ResponseEntity<UserResponse> get(@PathVariable UUID id) {
-        // TODO: Brak autoryzacji — każdy może pobrać dane dowolnego użytkownika podając jego UUID.
-        //       Po wprowadzeniu autentykacji (Spring Security + JWT) dodać weryfikację, że
-        //       wywołujący żąda własnych danych: wymagać nagłówka X-User-Id == {id} lub roli ADMIN.
+        // SECURITY: Brak autoryzacji — przed wdrożeniem produkcyjnym dodać weryfikację JWT.
         return userRepository.findById(id)
                 .map(UserResponse::from)
                 .map(ResponseEntity::ok)
@@ -47,21 +45,35 @@ public class UserController {
         // TODO: Token KSeF jest przechowywany w bazie jako czysty tekst (plaintext).
         //       W środowisku produkcyjnym należy zaszyfrować go przed zapisem
         //       (np. JPA AttributeConverter z AES-256 lub integracja z HashiCorp Vault / AWS KMS).
+        AppUser.InvoiceNumberPrefixMode prefixMode = req.getInvoicePrefixMode() != null
+                ? req.getInvoicePrefixMode()
+                : AppUser.InvoiceNumberPrefixMode.NONE;
         AppUser user = AppUser.builder()
                 .email(req.getEmail())
                 .nip(req.getNip())
                 .companyName(req.getCompanyName())
                 .ksefToken(req.getKsefToken())
+                .invoicePrefixMode(prefixMode)
                 .build();
         return ResponseEntity.ok(UserResponse.from(userRepository.save(user)));
+    }
+
+    @PutMapping("/{id}/invoice-prefix-mode")
+    public ResponseEntity<Void> updatePrefixMode(
+            @PathVariable UUID id,
+            @RequestBody UpdatePrefixRequest req) {
+        AppUser user = userRepository.findById(id)
+                .orElseThrow(() -> new pl.ksef.exception.ResourceNotFoundException("User not found: " + id));
+        user.setInvoicePrefixMode(req.getInvoicePrefixMode());
+        userRepository.save(user);
+        return ResponseEntity.noContent().build();
     }
 
     @PutMapping("/{id}/ksef-token")
     public ResponseEntity<Void> updateToken(
             @PathVariable UUID id,
             @RequestBody UpdateTokenRequest req) {
-        // TODO: Brak autoryzacji — każdy może zmienić token dowolnego użytkownika podając jego UUID.
-        //       Po wprowadzeniu JWT dodać weryfikację, że X-User-Id == {id}.
+        // SECURITY: Brak autoryzacji — przed wdrożeniem produkcyjnym dodać weryfikację JWT.
         AppUser user = userRepository.findById(id)
                 .orElseThrow(() -> new pl.ksef.exception.ResourceNotFoundException("User not found: " + id));
         user.setKsefToken(req.getKsefToken());
@@ -77,11 +89,17 @@ public class UserController {
         @NotBlank @Size(min = 10, max = 10) private String nip;
         @NotBlank private String companyName;
         private String ksefToken;
+        private AppUser.InvoiceNumberPrefixMode invoicePrefixMode;
     }
 
     @Data
     public static class UpdateTokenRequest {
         private String ksefToken;
+    }
+
+    @Data
+    public static class UpdatePrefixRequest {
+        private AppUser.InvoiceNumberPrefixMode invoicePrefixMode;
     }
 
     @Data
@@ -91,6 +109,7 @@ public class UserController {
         private String nip;
         private String companyName;
         private boolean hasKsefToken;
+        private String invoicePrefixMode;
 
         static UserResponse from(AppUser u) {
             var r = new UserResponse();
@@ -99,6 +118,8 @@ public class UserController {
             r.setNip(u.getNip());
             r.setCompanyName(u.getCompanyName());
             r.setHasKsefToken(u.getKsefToken() != null && !u.getKsefToken().isBlank());
+            r.setInvoicePrefixMode(u.getInvoicePrefixMode() != null
+                    ? u.getInvoicePrefixMode().name() : "NONE");
             return r;
         }
     }

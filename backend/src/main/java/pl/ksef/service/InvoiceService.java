@@ -17,13 +17,16 @@ import pl.ksef.entity.Invoice.InvoiceSource;
 import pl.ksef.entity.Invoice.InvoiceStatus;
 import pl.ksef.entity.InvoiceItem;
 import pl.ksef.exception.ResourceNotFoundException;
+import pl.ksef.entity.AppUser;
 import pl.ksef.repository.InvoiceRepository;
+import pl.ksef.repository.UserRepository;
 import pl.ksef.service.ksef.Fa3Validator;
 import pl.ksef.service.queue.InvoiceSendRequestedEvent;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
@@ -43,6 +46,19 @@ public class InvoiceService {
     private final InvoiceRepository invoiceRepository;
     private final ApplicationEventPublisher eventPublisher;
     private final Fa3Validator fa3Validator;
+    private final UserRepository userRepository;
+
+    /**
+     * Stosuje prefiks roku i miesiąca do numeru faktury gdy tryb = YEAR_MONTH.
+     * Przykład: applyPrefix("1", YEAR_MONTH, 2026-04-15) → "2026/04/1"
+     */
+    private String applyPrefix(String rawNumber, AppUser.InvoiceNumberPrefixMode mode, LocalDate issueDate) {
+        if (mode == AppUser.InvoiceNumberPrefixMode.YEAR_MONTH && issueDate != null) {
+            String prefix = issueDate.format(DateTimeFormatter.ofPattern("yyyy/MM"));
+            return prefix + "/" + rawNumber;
+        }
+        return rawNumber;
+    }
 
     /**
      * Shortcut dla faktury wystawionej przez formularz (source=FORM).
@@ -208,12 +224,17 @@ public class InvoiceService {
     // ---- private ----
 
     private Invoice buildInvoice(UUID userId, InvoiceDto.CreateRequest req, InvoiceSource source) {
+        AppUser user = userRepository.findById(userId)
+                .orElseThrow(() -> new ResourceNotFoundException("User not found: " + userId));
+        String invoiceNumber = applyPrefix(req.getInvoiceNumber(),
+                user.getInvoicePrefixMode(), req.getIssueDate());
+
         Invoice invoice = Invoice.builder()
                 .userId(userId)
                 .direction(InvoiceDirection.ISSUED)
                 .status(Invoice.InvoiceStatus.DRAFT)
                 .source(source)
-                .invoiceNumber(req.getInvoiceNumber())
+                .invoiceNumber(invoiceNumber)
                 .issueDate(req.getIssueDate())
                 .saleDate(req.getSaleDate())
                 .sellerName(req.getSellerName())

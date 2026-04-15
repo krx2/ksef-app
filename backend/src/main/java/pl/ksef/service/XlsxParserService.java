@@ -12,6 +12,7 @@ import java.io.IOException;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.*;
+import java.util.stream.Collectors;
 
 @Service
 @Slf4j
@@ -171,7 +172,22 @@ public class XlsxParserService {
             if (mapping == null) return;
             if (mapping.getType() == FieldMapping.MappingType.VALUE) {
                 result.put(fieldName, mapping.getValue());
+            } else if (mapping.getType() == FieldMapping.MappingType.MULTI_CELL) {
+                if (mapping.getCells() != null && !mapping.getCells().isEmpty()) {
+                    String joined = mapping.getCells().stream()
+                            .map(cellRef -> {
+                                int sheetIdx = cellRef.getSheetIndex() != null ? cellRef.getSheetIndex() : 0;
+                                String val = view.getDisplayValue(cellRef.getCellRef(), sheetIdx);
+                                return val != null ? val.trim() : "";
+                            })
+                            .filter(s -> !s.isEmpty())
+                            .collect(Collectors.joining(", "));
+                    result.put(fieldName, joined.isBlank() ? null : joined);
+                } else {
+                    result.put(fieldName, null);
+                }
             } else {
+                // type == CELL
                 int sheetIdx = mapping.getSheetIndex() != null ? mapping.getSheetIndex() : 0;
                 // For date / numeric fields used in buildCreateRequest we want
                 // a normalized representation, not the locale-formatted display string.

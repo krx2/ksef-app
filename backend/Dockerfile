@@ -13,6 +13,9 @@ RUN mvn package -DskipTests -q
 FROM eclipse-temurin:21-jre-alpine
 WORKDIR /app
 
+# Czcionki z obsługą Unicode (polskie znaki w generowanych PDF-ach)
+RUN apk add --no-cache font-dejavu
+
 RUN addgroup -S ksef && adduser -S ksef -G ksef
 
 COPY --from=build /app/target/*.jar app.jar

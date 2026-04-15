@@ -4,9 +4,9 @@ import { useState, useEffect, Suspense } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useSearchParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { Plus, Upload, RefreshCw, Search, X } from 'lucide-react';
+import { Plus, Upload, RefreshCw, Search, X, Download } from 'lucide-react';
 import { useUser } from '@/lib/user-context';
-import { invoicesApi } from '@/lib/api';
+import { invoicesApi, KSEF_HISTORY_START } from '@/lib/api';
 import { formatPLN, formatDate } from '@/lib/utils';
 import { StatusBadge, DirectionBadge } from '@/components/ui/StatusBadge';
 import type { InvoiceDirection, InvoiceStatus, InvoiceFilters, RodzajFaktury } from '@/types';
@@ -34,9 +34,12 @@ function InvoicesList() {
   const [search, setSearch]               = useState('');
   const [status, setStatus]               = useState<InvoiceStatus | undefined>(undefined);
   const [rodzajFaktury, setRodzajFaktury] = useState<RodzajFaktury | undefined>(undefined);
-  const [issueDateFrom, setIssueDateFrom] = useState('');
+  const [issueDateFrom, setIssueDateFrom] = useState(KSEF_HISTORY_START);
   const [issueDateTo, setIssueDateTo]     = useState('');
   const [page, setPage]                   = useState(0);
+
+  // TODO(F7): Stan pobierania PDF — klucz to invoiceId, wartość to 'loading' | 'error' | undefined
+  // const [pdfDownloading, setPdfDownloading] = useState<Record<string, 'loading' | 'error'>>({});
 
   // Zlicz aktywne filtry dodatkowe (poza kierunkiem)
   const activeFilterCount = [
@@ -89,10 +92,25 @@ function InvoicesList() {
     setSearch('');
     setStatus(undefined);
     setRodzajFaktury(undefined);
-    setIssueDateFrom('');
+    setIssueDateFrom(KSEF_HISTORY_START);
     setIssueDateTo('');
     setPage(0);
   };
+
+  // TODO(F7): Handler pobierania PDF faktury z KSeF.
+  //   Aktywować gdy invoicesApi.downloadPdf() zostanie odkomentowane w api.ts.
+  //
+  // const handleDownloadPdf = async (invoiceId: string) => {
+  //   setPdfDownloading(prev => ({ ...prev, [invoiceId]: 'loading' }));
+  //   try {
+  //     await invoicesApi.downloadPdf(userId, invoiceId);
+  //   } catch {
+  //     setPdfDownloading(prev => ({ ...prev, [invoiceId]: 'error' }));
+  //     setTimeout(() => setPdfDownloading(prev => { const n = {...prev}; delete n[invoiceId]; return n; }), 3000);
+  //   } finally {
+  //     setPdfDownloading(prev => { const n = {...prev}; delete n[invoiceId]; return n; });
+  //   }
+  // };
 
   const handleDirectionChange = (d: InvoiceDirection | undefined) => {
     setDirection(d);
@@ -205,6 +223,7 @@ function InvoicesList() {
               type="date"
               className="input py-1 text-sm"
               value={issueDateFrom}
+              min={KSEF_HISTORY_START}
               onChange={e => { setIssueDateFrom(e.target.value); setPage(0); }}
             />
           </div>
@@ -244,6 +263,8 @@ function InvoicesList() {
                   <th className="px-5 py-3 text-right">Brutto</th>
                   <th className="px-5 py-3 text-left">Status</th>
                   <th className="px-5 py-3 text-left">Nr KSeF</th>
+                  {/* TODO(F7): Kolumna pobierania PDF — odkomentować gdy invoicesApi.downloadPdf() gotowe */}
+                  {/* <th className="px-5 py-3 text-center w-16">PDF</th> */}
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
@@ -269,6 +290,24 @@ function InvoicesList() {
                     <td className="px-5 py-3 font-mono text-xs text-gray-400">
                       {inv.ksefNumber ?? '—'}
                     </td>
+                    {/* TODO(F7): Przycisk pobierania PDF dla faktur SENT z ksefNumber.
+                        Odkomentować gdy invoicesApi.downloadPdf() i backend będą gotowe.
+                    <td className="px-5 py-3 text-center">
+                      {inv.status === 'SENT' && inv.ksefNumber ? (
+                        <button
+                          onClick={() => handleDownloadPdf(inv.id)}
+                          disabled={pdfDownloading[inv.id] === 'loading'}
+                          className="btn-secondary py-1 px-2 text-xs"
+                          title="Pobierz oficjalny PDF z KSeF"
+                        >
+                          <Download size={12} />
+                          {pdfDownloading[inv.id] === 'loading' ? '…' : 'PDF'}
+                        </button>
+                      ) : (
+                        <span className="text-gray-200">—</span>
+                      )}
+                    </td>
+                    */}
                   </tr>
                 ))}
               </tbody>

@@ -3,11 +3,13 @@
 import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
-import { Plus, Pencil, Trash2, Key } from 'lucide-react';
+import { Plus, Pencil, Trash2, Key, Hash, Mail, Download } from 'lucide-react';
 import { useUser } from '@/lib/user-context';
-import { xlsxConfigsApi, usersApi } from '@/lib/api';
+import { xlsxConfigsApi, usersApi, userPrefixApi, notificationEmailsApi, invoicesApi } from '@/lib/api';
+import { KSEF_HISTORY_START } from '@/lib/api';
 import XlsxConfigModal from '@/components/forms/XlsxConfigModal';
 import type { XlsxConfig } from '@/types';
+import type { NotificationEmail } from '@/types';
 
 export default function KonfiguracjaPage() {
   const { userId, user, setUser, isLoaded } = useUser();
@@ -18,6 +20,36 @@ export default function KonfiguracjaPage() {
   const [editing, setEditing] = useState<XlsxConfig | null>(null);
   const [ksefToken, setKsefToken] = useState('');
   const [savingToken, setSavingToken] = useState(false);
+  const [historyState, setHistoryState] = useState<'idle' | 'loading' | 'done' | 'error'>('idle');
+
+  const { data: notificationEmails, refetch: refetchEmails } = useQuery<NotificationEmail[]>({
+    queryKey: ['notification-emails', userId],
+    queryFn:  () => notificationEmailsApi.list(userId),
+    enabled:  !!userId,
+  });
+  const [newEmail, setNewEmail]       = useState('');
+  const [newLabel, setNewLabel]       = useState('');
+  const [addingEmail, setAddingEmail] = useState(false);
+  const [emailError, setEmailError]   = useState('');
+
+  const handleAddEmail = async () => {
+    if (!newEmail.trim()) return;
+    setAddingEmail(true); setEmailError('');
+    try {
+      await notificationEmailsApi.add(userId, newEmail.trim(), newLabel.trim() || undefined);
+      setNewEmail(''); setNewLabel('');
+      refetchEmails();
+    } catch (err: unknown) {
+      const axiosErr = err as { response?: { data?: { error?: string } } };
+      setEmailError(axiosErr?.response?.data?.error ?? 'Błąd dodawania adresu');
+    } finally { setAddingEmail(false); }
+  };
+
+  const handleRemoveEmail = async (id: string) => {
+    if (!confirm('Na pewno usunąć ten adres z listy powiadomień?')) return;
+    await notificationEmailsApi.remove(userId, id);
+    refetchEmails();
+  };
 
   const { data: configs, isLoading } = useQuery({
     queryKey: ['xlsx-configs', userId],
@@ -35,6 +67,25 @@ export default function KonfiguracjaPage() {
   }, [isLoaded, user, router]);
 
   if (!isLoaded || !user) return null;
+
+  const handleUpdatePrefixMode = async (mode: 'NONE' | 'YEAR_MONTH') => {
+    if (!userId || !user) return;
+    await userPrefixApi.updatePrefixMode(userId, mode);
+    setUser({ ...user, invoicePrefixMode: mode });
+  };
+
+  const handleFetchHistory = async () => {
+    if (!userId || !user?.hasKsefToken) return;
+    setHistoryState('loading');
+    try {
+      await invoicesApi.fetchHistoryFromKsef(userId);
+      setHistoryState('done');
+      setTimeout(() => setHistoryState('idle'), 5000);
+    } catch {
+      setHistoryState('error');
+      setTimeout(() => setHistoryState('idle'), 5000);
+    }
+  };
 
   const handleSaveToken = async () => {
     if (!userId || !ksefToken) return;
@@ -81,6 +132,122 @@ export default function KonfiguracjaPage() {
             {savingToken ? 'Zapisywanie…' : 'Zapisz token'}
           </button>
         </div>
+      </div>
+
+      {/* Import historyczny KSeF */}
+      <div className="card p-5 space-y-3">
+        <div className="flex items-center gap-2">
+          <Download size={16} className="text-gray-500" />
+          <h2 className="font-medium text-gray-700">Import historyczny z KSeF</h2>
+        </div>
+        <p className="text-sm text-gray-500">
+          Pobiera wszystkie faktury z KSeF od {KSEF_HISTORY_START} do dziś i zapisuje je w bazie danych.
+          Duplikaty są automatycznie pomijane. Import działa w tle — faktury pojawią się na liście po chwili.
+        </p>
+        {historyState === 'done' && (
+          <p className="text-sm text-green-700 font-medium">
+            Import zlecony — faktury będą dostępne na liście za chwilę.
+          </p>
+        )}
+        {historyState === 'error' && (
+          <p className="text-sm text-red-600">Błąd zlecenia importu. Spróbuj ponownie.</p>
+        )}
+        <button
+          className="btn-secondary"
+          onClick={handleFetchHistory}
+          disabled={!user?.hasKsefToken || historyState === 'loading' || historyState === 'done'}
+          title={!user?.hasKsefToken ? 'Wymagany token KSeF' : 'Pobierz faktury historyczne z KSeF'}
+        >
+          <Download size={15} className={historyState === 'loading' ? 'animate-bounce' : ''} />
+          {historyState === 'loading' ? 'Zlecanie importu…' : historyState === 'done' ? 'Import zlecony ✓' : 'Pobierz stare faktury'}
+        </button>
+        {!user?.hasKsefToken && (
+          <p className="text-xs text-amber-600">Wymagany token KSeF — skonfiguruj go powyżej.</p>
+        )}
+      </div>
+
+      <div className="card p-5 space-y-4">
+        <div className="flex items-center gap-2">
+          <Mail size={16} className="text-gray-500" />
+          <h2 className="font-medium text-gray-700">Adresy email do powiadomień</h2>
+        </div>
+        <p className="text-sm text-gray-500">
+          Powiadomienia o nowych i wysłanych fakturach będą trafiać na poniższe adresy.
+          {(!notificationEmails || notificationEmails.length === 0) && (
+            <span className="ml-1 text-amber-600 font-medium">
+              Brak adresów — powiadomienia wysyłane na główny email konta ({user.email}).
+            </span>
+          )}
+        </p>
+
+        {notificationEmails && notificationEmails.length > 0 && (
+          <div className="divide-y divide-gray-100 border border-gray-200 rounded-lg overflow-hidden">
+            {notificationEmails.map(entry => (
+              <div key={entry.id} className="flex items-center justify-between px-4 py-3">
+                <div>
+                  <span className="font-medium text-gray-900">{entry.email}</span>
+                  {entry.label && (
+                    <span className="ml-2 text-xs text-gray-400 bg-gray-100 rounded px-1.5 py-0.5">
+                      {entry.label}
+                    </span>
+                  )}
+                </div>
+                <button
+                  className="btn-danger py-1 px-2 text-xs"
+                  onClick={() => handleRemoveEmail(entry.id)}
+                  title="Usuń adres z listy"
+                >
+                  <Trash2 size={13} />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {emailError && <p className="text-sm text-red-600">{emailError}</p>}
+        <div className="flex gap-2 flex-wrap">
+          <input
+            className="input max-w-xs text-sm"
+            type="email"
+            placeholder="adres@email.pl"
+            value={newEmail}
+            onChange={e => setNewEmail(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && handleAddEmail()}
+          />
+          <input
+            className="input max-w-44 text-sm"
+            type="text"
+            placeholder="Etykieta (opcjonalna)"
+            value={newLabel}
+            onChange={e => setNewLabel(e.target.value)}
+          />
+          <button
+            className="btn-primary"
+            onClick={handleAddEmail}
+            disabled={!newEmail.trim() || addingEmail}
+          >
+            <Plus size={15} />
+            {addingEmail ? 'Dodawanie…' : 'Dodaj adres'}
+          </button>
+        </div>
+      </div>
+
+      <div className="card p-5 space-y-3">
+        <div className="flex items-center gap-2">
+          <Hash size={16} className="text-gray-500" />
+          <h2 className="font-medium text-gray-700">Format numeru faktury</h2>
+        </div>
+        <p className="text-sm text-gray-500">
+          Opcjonalny prefiks roku i miesiąca dodawany automatycznie do podanego numeru.
+        </p>
+        <select
+          className="input max-w-xs"
+          value={user?.invoicePrefixMode ?? 'NONE'}
+          onChange={e => handleUpdatePrefixMode(e.target.value as 'NONE' | 'YEAR_MONTH')}
+        >
+          <option value="NONE">Bez prefiksu (np. 1, 2, 3)</option>
+          <option value="YEAR_MONTH">Rok/Miesiąc (np. 2026/04/1)</option>
+        </select>
       </div>
 
       {/* XLSX configs section */}

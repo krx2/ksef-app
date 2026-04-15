@@ -110,13 +110,21 @@ export interface PageResponse<T> {
 }
 
 // XLSX config types
-export type FieldMappingType = 'VALUE' | 'CELL';
+
+export type FieldMappingType = 'VALUE' | 'CELL' | 'MULTI_CELL';
+
+/** Referecja do pojedynczej komórki w trybie MULTI_CELL */
+export interface CellRef {
+  cellRef: string;      // np. "A1", "C3"
+  sheetIndex?: number;  // 0-based, default 0
+}
 
 export interface FieldMapping {
   type: FieldMappingType;
   value?: string;        // when type=VALUE
   cellRef?: string;      // e.g. "A1" — when type=CELL
   sheetIndex?: number;   // 0-based, default 0
+  cells?: CellRef[];
 }
 
 export interface XlsxConfig {
@@ -198,10 +206,21 @@ export const INVOICE_FIELDS: { key: string; label: string; required?: boolean }[
   { key: 'item10_vatRate',      label: 'Pozycja 10 — stawka VAT' },
 ];
 
+/** Adres email do powiadomień — jeden użytkownik może mieć ich wiele. */
+export interface NotificationEmail {
+  id: string;
+  email: string;
+  /** Opcjonalna etykieta, np. "Biuro rachunkowe", "Właściciel" */
+  label?: string;
+  sortOrder: number;
+  createdAt: string;
+}
+
 export interface AppUser {
   id: string;
   email: string;
   nip: string;
   companyName: string;
   hasKsefToken: boolean;
+  invoicePrefixMode?: 'NONE' | 'YEAR_MONTH';
 }
