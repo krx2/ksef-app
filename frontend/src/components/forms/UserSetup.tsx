@@ -12,29 +12,30 @@ export default function UserSetup() {
 
   // Login state
   const [nip, setNip] = useState('');
+  const [pin, setPin] = useState('');
   const [loginLoading, setLoginLoading] = useState(false);
   const [loginError, setLoginError] = useState('');
 
   // Register state
-  const [form, setForm] = useState<{ email: string; nip: string; companyName: string; ksefToken: string; invoicePrefixMode: 'NONE' | 'YEAR_MONTH' }>(
-    { email: '', nip: '', companyName: '', ksefToken: '', invoicePrefixMode: 'NONE' }
+  const [form, setForm] = useState<{ email: string; nip: string; companyName: string; ksefToken: string; invoicePrefixMode: 'NONE' | 'YEAR_MONTH'; pin: string; pinConfirm: string }>(
+    { email: '', nip: '', companyName: '', ksefToken: '', invoicePrefixMode: 'NONE', pin: '', pinConfirm: '' }
   );
   const [registerLoading, setRegisterLoading] = useState(false);
   const [registerError, setRegisterError] = useState('');
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (pin && !/^\d{4,6}$/.test(pin)) {
+      setLoginError('Kod PIN musi składać się z 4–6 cyfr.');
+      return;
+    }
     setLoginLoading(true);
     setLoginError('');
     try {
-      const user = await usersApi.loginByNip(nip.trim());
+      const user = await usersApi.login(nip.trim(), pin || undefined);
       setUser(user);
     } catch (err: any) {
-      if (err?.response?.status === 404) {
-        setLoginError('Nie znaleziono konta dla podanego NIP. Zarejestruj się.');
-      } else {
-        setLoginError(err?.response?.data?.error ?? 'Błąd podczas logowania');
-      }
+      setLoginError(err?.response?.data?.error ?? 'Błąd podczas logowania');
     } finally {
       setLoginLoading(false);
     }
@@ -42,10 +43,19 @@ export default function UserSetup() {
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!/^\d{4,6}$/.test(form.pin)) {
+      setRegisterError('Kod PIN musi składać się z 4–6 cyfr.');
+      return;
+    }
+    if (form.pin !== form.pinConfirm) {
+      setRegisterError('Kody PIN nie są zgodne.');
+      return;
+    }
     setRegisterLoading(true);
     setRegisterError('');
     try {
-      const user = await usersApi.create(form);
+      const { pinConfirm: _, ...payload } = form;
+      const user = await usersApi.create(payload);
       setUser(user);
     } catch (err: any) {
       setRegisterError(err?.response?.data?.error ?? 'Błąd podczas tworzenia konta');
@@ -73,6 +83,18 @@ export default function UserSetup() {
                   placeholder="0000000000"
                   value={nip}
                   onChange={e => setNip(e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="label">Kod PIN (4–6 cyfr)</label>
+                <input
+                  className="input"
+                  type="password"
+                  inputMode="numeric"
+                  maxLength={6}
+                  placeholder="Pozostaw puste jeśli nie masz kodu PIN"
+                  value={pin}
+                  onChange={e => setPin(e.target.value.replace(/\D/g, ''))}
                 />
               </div>
 
@@ -119,6 +141,20 @@ export default function UserSetup() {
                 <input className="input" type="password"
                   placeholder="Możesz dodać później w Konfiguracji"
                   value={form.ksefToken} onChange={e => setForm(f => ({ ...f, ksefToken: e.target.value }))} />
+              </div>
+              <div>
+                <label className="label">Kod PIN (4–6 cyfr)</label>
+                <input className="input" type="password" required inputMode="numeric"
+                  maxLength={6} placeholder="••••"
+                  value={form.pin}
+                  onChange={e => setForm(f => ({ ...f, pin: e.target.value.replace(/\D/g, '') }))} />
+              </div>
+              <div>
+                <label className="label">Powtórz kod PIN</label>
+                <input className="input" type="password" required inputMode="numeric"
+                  maxLength={6} placeholder="••••"
+                  value={form.pinConfirm}
+                  onChange={e => setForm(f => ({ ...f, pinConfirm: e.target.value.replace(/\D/g, '') }))} />
               </div>
 
               <div>

@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
-import { Plus, Pencil, Trash2, Key, Hash, Mail, Download } from 'lucide-react';
+import { Plus, Pencil, Trash2, Key, Hash, Mail, Download, Lock } from 'lucide-react';
 import { useUser } from '@/lib/user-context';
 import { xlsxConfigsApi, usersApi, userPrefixApi, notificationEmailsApi, invoicesApi } from '@/lib/api';
 import { KSEF_HISTORY_START } from '@/lib/api';
@@ -21,6 +21,12 @@ export default function KonfiguracjaPage() {
   const [ksefToken, setKsefToken] = useState('');
   const [savingToken, setSavingToken] = useState(false);
   const [historyState, setHistoryState] = useState<'idle' | 'loading' | 'done' | 'error'>('idle');
+
+  const [newPin, setNewPin] = useState('');
+  const [newPinConfirm, setNewPinConfirm] = useState('');
+  const [savingPin, setSavingPin] = useState(false);
+  const [pinError, setPinError] = useState('');
+  const [pinSuccess, setPinSuccess] = useState(false);
 
   const { data: notificationEmails, refetch: refetchEmails } = useQuery<NotificationEmail[]>({
     queryKey: ['notification-emails', userId],
@@ -87,6 +93,33 @@ export default function KonfiguracjaPage() {
     }
   };
 
+  const handleSavePin = async () => {
+    if (!/^\d{4,6}$/.test(newPin)) {
+      setPinError('PIN musi składać się z 4–6 cyfr.');
+      return;
+    }
+    if (newPin !== newPinConfirm) {
+      setPinError('Kody PIN nie są zgodne.');
+      return;
+    }
+    setSavingPin(true);
+    setPinError('');
+    setPinSuccess(false);
+    try {
+      await usersApi.setPin(userId, newPin);
+      if (user) setUser({ ...user, hasPin: true });
+      setNewPin('');
+      setNewPinConfirm('');
+      setPinSuccess(true);
+      setTimeout(() => setPinSuccess(false), 4000);
+    } catch (err: unknown) {
+      const axiosErr = err as { response?: { data?: { error?: string } } };
+      setPinError(axiosErr?.response?.data?.error ?? 'Błąd podczas zapisywania PIN-u');
+    } finally {
+      setSavingPin(false);
+    }
+  };
+
   const handleSaveToken = async () => {
     if (!userId || !ksefToken) return;
     setSavingToken(true);
@@ -132,6 +165,59 @@ export default function KonfiguracjaPage() {
             {savingToken ? 'Zapisywanie…' : 'Zapisz token'}
           </button>
         </div>
+      </div>
+
+      {/* PIN section */}
+      <div className="card p-5 space-y-3">
+        <div className="flex items-center gap-2">
+          <Lock size={16} className="text-gray-500" />
+          <h2 className="font-medium text-gray-700">Kod PIN</h2>
+          {user?.hasPin ? (
+            <span className="badge bg-green-100 text-green-700">Ustawiony</span>
+          ) : (
+            <span className="badge bg-amber-100 text-amber-700">Nie ustawiony</span>
+          )}
+        </div>
+        <p className="text-sm text-gray-500">
+          {user?.hasPin
+            ? 'Zmień kod PIN używany przy logowaniu.'
+            : 'Ustaw kod PIN (4–6 cyfr), aby zabezpieczyć dostęp do konta.'}
+        </p>
+        <div className="flex gap-2 flex-wrap items-end">
+          <div>
+            <label className="label text-xs">Nowy PIN</label>
+            <input
+              className="input max-w-40"
+              type="password"
+              inputMode="numeric"
+              maxLength={6}
+              placeholder="••••"
+              value={newPin}
+              onChange={e => { setNewPin(e.target.value.replace(/\D/g, '')); setPinError(''); }}
+            />
+          </div>
+          <div>
+            <label className="label text-xs">Powtórz PIN</label>
+            <input
+              className="input max-w-40"
+              type="password"
+              inputMode="numeric"
+              maxLength={6}
+              placeholder="••••"
+              value={newPinConfirm}
+              onChange={e => { setNewPinConfirm(e.target.value.replace(/\D/g, '')); setPinError(''); }}
+            />
+          </div>
+          <button
+            className="btn-primary"
+            onClick={handleSavePin}
+            disabled={!newPin || !newPinConfirm || savingPin}
+          >
+            {savingPin ? 'Zapisywanie…' : user?.hasPin ? 'Zmień PIN' : 'Ustaw PIN'}
+          </button>
+        </div>
+        {pinError && <p className="text-sm text-red-600">{pinError}</p>}
+        {pinSuccess && <p className="text-sm text-green-700 font-medium">PIN zapisany pomyślnie.</p>}
       </div>
 
       {/* Import historyczny KSeF */}

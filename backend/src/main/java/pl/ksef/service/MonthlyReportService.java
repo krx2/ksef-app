@@ -19,6 +19,7 @@ import java.text.NumberFormat;
 import java.time.LocalDate;
 import java.time.YearMonth;
 import java.time.format.DateTimeFormatter;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
 import java.util.UUID;
@@ -136,6 +137,11 @@ public class MonthlyReportService {
                         .filter(inv -> inv.getUserId().equals(userId))
                         .orElseThrow(() -> new ResourceNotFoundException(
                                 "Invoice not found or access denied: " + id)))
+                .sorted(Comparator
+                        .<Invoice, Integer>comparing(inv ->
+                                inv.getDirection().name().equals("ISSUED") ? 0 : 1)
+                        .thenComparing(inv ->
+                                inv.getIssueDate() != null ? inv.getIssueDate() : LocalDate.MIN))
                 .toList();
 
         log.info("Generating monthly report PDF for userId={}, month={}, invoices={}",
@@ -152,7 +158,6 @@ public class MonthlyReportService {
             Font metaFont   = font(unicodeFont,     FontFactory.HELVETICA,       9, Font.NORMAL, new Color(107, 114, 128));
             Font headerFont = font(unicodeFontBold, FontFactory.HELVETICA_BOLD,  8, Font.BOLD,   Color.WHITE);
             Font cellFont   = font(unicodeFont,     FontFactory.HELVETICA,        8, Font.NORMAL, Color.BLACK);
-            Font sumFont    = font(unicodeFontBold, FontFactory.HELVETICA_BOLD,  9, Font.BOLD,   Color.BLACK);
 
             // Nagłówek dokumentu
             String monthLabel = capitalize(month.format(MONTH_LABEL_FORMAT));
@@ -179,9 +184,6 @@ public class MonthlyReportService {
             }
 
             // Wiersze danych
-            BigDecimal sumNet   = BigDecimal.ZERO;
-            BigDecimal sumVat   = BigDecimal.ZERO;
-            BigDecimal sumGross = BigDecimal.ZERO;
             boolean altRow = false;
             Color altBg = new Color(243, 244, 246);
 
@@ -205,23 +207,7 @@ public class MonthlyReportService {
                 addCell(table, inv.getKsefNumber() != null ? inv.getKsefNumber() : "\u2014",
                         cellFont, rowBg, Element.ALIGN_LEFT);
                 addCell(table, statusLabel(inv.getStatus().name()), cellFont, rowBg, Element.ALIGN_CENTER);
-
-                sumNet   = sumNet.add(inv.getNetAmount() != null   ? inv.getNetAmount()   : BigDecimal.ZERO);
-                sumVat   = sumVat.add(inv.getVatAmount() != null   ? inv.getVatAmount()   : BigDecimal.ZERO);
-                sumGross = sumGross.add(inv.getGrossAmount() != null ? inv.getGrossAmount() : BigDecimal.ZERO);
             }
-
-            // Wiersz sumy
-            Color sumBg = new Color(219, 234, 254);
-            addCell(table, "SUMA", sumFont, sumBg, Element.ALIGN_LEFT);
-            addCell(table, "",     sumFont, sumBg, Element.ALIGN_LEFT);
-            addCell(table, "",     sumFont, sumBg, Element.ALIGN_LEFT);
-            addCell(table, "",     sumFont, sumBg, Element.ALIGN_LEFT);
-            addCell(table, formatPln(sumNet),   sumFont, sumBg, Element.ALIGN_RIGHT);
-            addCell(table, formatPln(sumVat),   sumFont, sumBg, Element.ALIGN_RIGHT);
-            addCell(table, formatPln(sumGross), sumFont, sumBg, Element.ALIGN_RIGHT);
-            addCell(table, "", sumFont, sumBg, Element.ALIGN_LEFT);
-            addCell(table, "", sumFont, sumBg, Element.ALIGN_LEFT);
 
             doc.add(table);
             doc.close();

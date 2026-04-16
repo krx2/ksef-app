@@ -222,5 +222,6 @@ export interface AppUser {
   nip: string;
   companyName: string;
   hasKsefToken: boolean;
+  hasPin: boolean;
   invoicePrefixMode?: 'NONE' | 'YEAR_MONTH';
 }

@@ -55,6 +55,10 @@ public class AppUser {
     @Column(name = "ksef_refresh_token_valid_until")
     private LocalDateTime ksefRefreshTokenValidUntil;
 
+    /** Hash BCrypt kodu PIN (4–6 cyfr). NULL = brak PIN-u. */
+    @Column(name = "pin_hash")
+    private String pinHash;
+
     @Column(name = "invoice_number_prefix_mode", nullable = false)
     @Enumerated(EnumType.STRING)
     @Builder.Default

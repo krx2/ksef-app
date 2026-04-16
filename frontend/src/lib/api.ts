@@ -157,8 +157,14 @@ export const usersApi = {
   loginByNip: (nip: string) =>
     api.get<AppUser>(`/users/by-nip/${nip}`).then(r => r.data),
 
-  create: (data: { email: string; nip: string; companyName: string; ksefToken?: string; invoicePrefixMode?: 'NONE' | 'YEAR_MONTH' }) =>
+  login: (nip: string, pin?: string) =>
+    api.post<AppUser>('/users/login', { nip, pin }).then(r => r.data),
+
+  create: (data: { email: string; nip: string; companyName: string; ksefToken?: string; invoicePrefixMode?: 'NONE' | 'YEAR_MONTH'; pin?: string }) =>
     api.post<AppUser>('/users', data).then(r => r.data),
+
+  setPin: (id: string, pin: string) =>
+    api.put(`/users/${id}/pin`, { pin }),
 
   updateToken: (id: string, ksefToken: string) =>
     api.put(`/users/${id}/ksef-token`, { ksefToken }),
