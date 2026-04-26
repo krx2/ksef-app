@@ -9,6 +9,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
 import pl.ksef.dto.KsefDto;
 
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 
 /**
@@ -308,15 +309,18 @@ public class KsefApiClient {
      * @return XML faktury FA(3) jako string UTF-8
      */
     public String getInvoiceContent(String accessToken, String ksefNumber) {
-        String content = restClient.get()
+        // Pobieramy jako byte[] i dekodujemy jawnie jako UTF-8, bo KSeF nie zawsze
+        // podaje charset w Content-Type, a RestClient domyślnie sięga po ISO-8859-1.
+        byte[] bytes = restClient.get()
                 .uri("/invoices/ksef/{ksefNumber}", ksefNumber)
                 .header("Authorization", "Bearer " + accessToken)
                 .retrieve()
-                .body(String.class);
-        if (content == null || content.isBlank()) {
+                .body(byte[].class);
+        if (bytes == null || bytes.length == 0) {
             throw new KsefException("Pusta odpowiedź z /invoices/ksef/" + ksefNumber);
         }
-        log.debug("Pobrano treść faktury ksefNumber={}, rozmiar={} B", ksefNumber, content.length());
+        String content = new String(bytes, StandardCharsets.UTF_8);
+        log.debug("Pobrano treść faktury ksefNumber={}, rozmiar={} B", ksefNumber, bytes.length);
         return content;
     }
 }

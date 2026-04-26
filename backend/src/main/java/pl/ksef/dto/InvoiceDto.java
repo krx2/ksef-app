@@ -85,6 +85,16 @@ public class InvoiceDto {
         /** Podmiot2.GV — faktura dotyczy członka grupy VAT (domyślnie false). */
         private boolean gv = false;
 
+        /** Platnosc/TerminPlatnosci/Termin — termin zapłaty. */
+        private LocalDate paymentDueDate;
+
+        /** Platnosc/RachunekBankowy/NrRB — numer rachunku bankowego sprzedawcy (max 35 znaków). */
+        @Size(max = 35)
+        private String bankAccountNumber;
+
+        /** Platnosc/RachunekBankowy/NazwaBanku — nazwa banku. */
+        private String bankName;
+
         @NotEmpty @Valid
         private List<ItemRequest> items;
     }
@@ -146,6 +156,9 @@ public class InvoiceDto {
         private String zwolnieniePodatkowe;
         private boolean jst;
         private boolean gv;
+        private LocalDate paymentDueDate;
+        private String bankAccountNumber;
+        private String bankName;
         private String errorMessage;
         private Invoice.InvoiceSource source;
         private List<ItemResponse> items;

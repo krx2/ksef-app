@@ -108,6 +108,9 @@ function buildEmptyFields(user?: { companyName?: string; nip?: string }) {
     zwolnieniePodatkowe: '',
     jst: false,
     gv: false,
+    paymentDueDate: '',
+    bankAccountNumber: '',
+    bankName: '',
   };
 }
 
@@ -175,6 +178,10 @@ export default function InvoiceFormPage() {
         ...fields,
         // Wyślij zwolnieniePodatkowe tylko gdy jest niepuste
         zwolnieniePodatkowe: fields.zwolnieniePodatkowe.trim() || undefined,
+        // Pola płatności są opcjonalne — nie wysyłaj pustych wartości
+        paymentDueDate: fields.paymentDueDate || undefined,
+        bankAccountNumber: fields.bankAccountNumber.trim() || undefined,
+        bankName: fields.bankName.trim() || undefined,
         items: items.map(it => ({
           name: it.name,
           unit: it.unit || undefined,
@@ -312,6 +319,30 @@ export default function InvoiceFormPage() {
             />
           </div>
         )}
+      </div>
+
+      {/* Płatność */}
+      <div className="card p-5 space-y-3">
+        <h2 className="font-medium text-gray-700">Płatność</h2>
+        <div className="grid grid-cols-3 gap-4">
+          <div>
+            <label className="label">Termin zapłaty</label>
+            <input className="input" type="date" value={fields.paymentDueDate}
+              onChange={e => setField('paymentDueDate', e.target.value)} />
+          </div>
+          <div>
+            <label className="label">Numer rachunku bankowego</label>
+            <input className="input" maxLength={35} placeholder="np. PL12 1234 5678 …"
+              value={fields.bankAccountNumber}
+              onChange={e => setField('bankAccountNumber', e.target.value)} />
+          </div>
+          <div>
+            <label className="label">Nazwa banku</label>
+            <input className="input" placeholder="np. PKO Bank Polski"
+              value={fields.bankName}
+              onChange={e => setField('bankName', e.target.value)} />
+          </div>
+        </div>
       </div>
 
       {/* Sprzedawca / Nabywca */}

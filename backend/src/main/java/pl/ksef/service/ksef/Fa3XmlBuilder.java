@@ -153,7 +153,7 @@ public class Fa3XmlBuilder {
 
     /**
      * Emituje sekcję {@code <Fa>} zgodnie z kolejnością elementów w XSD:
-     * KodWaluty → P_1 → P_2 → P_6? → P_13_x/P_14_x → P_15 → Adnotacje → RodzajFaktury → FaWiersz
+     * KodWaluty → P_1 → P_2 → P_6? → P_13_x/P_14_x → P_15 → Adnotacje → RodzajFaktury → FaWiersz → Platnosc?
      */
     private void appendFa(StringBuilder sb, Invoice invoice) {
         sb.append("  <Fa>\n");
@@ -177,11 +177,49 @@ public class Fa3XmlBuilder {
 
         sb.append("    <RodzajFaktury>").append(coal(invoice.getRodzajFaktury(), "VAT")).append("</RodzajFaktury>\n");
 
+        // FaWiersz przed Platnosc — wymagana kolejność wg XSD FA(3)
         if (invoice.getItems() != null && !invoice.getItems().isEmpty()) {
             appendFaWiersze(sb, invoice.getItems());
         }
 
+        // Platnosc po FaWiersz (i Rozliczenie) — zgodnie z XSD FA(3)
+        appendPlatnosc(sb, invoice);
+
         sb.append("  </Fa>\n");
+    }
+
+    // =========================================================================
+    // Platnosc — termin zapłaty i rachunek bankowy (opcjonalne)
+    // =========================================================================
+
+    /**
+     * Emituje sekcję {@code <Platnosc>} gdy ustawiony jest co najmniej jeden z trzech pól:
+     * termin zapłaty, numer rachunku bankowego lub nazwa banku.
+     * Zgodnie z XSD: Platnosc/TerminPlatnosci/Termin i Platnosc/RachunekBankowy są opcjonalne.
+     */
+    private void appendPlatnosc(StringBuilder sb, Invoice invoice) {
+        boolean hasTermin = invoice.getPaymentDueDate() != null;
+        boolean hasRb = hasValue(invoice.getBankAccountNumber());
+        boolean hasBankName = hasValue(invoice.getBankName());
+        if (!hasTermin && !hasRb && !hasBankName) return;
+
+        sb.append("    <Platnosc>\n");
+        if (hasTermin) {
+            sb.append("      <TerminPlatnosci>\n");
+            sb.append("        <Termin>").append(invoice.getPaymentDueDate().format(DATE_FMT)).append("</Termin>\n");
+            sb.append("      </TerminPlatnosci>\n");
+        }
+        if (hasRb || hasBankName) {
+            sb.append("      <RachunekBankowy>\n");
+            if (hasRb) {
+                sb.append("        <NrRB>").append(esc(invoice.getBankAccountNumber())).append("</NrRB>\n");
+            }
+            if (hasBankName) {
+                sb.append("        <NazwaBanku>").append(esc(invoice.getBankName())).append("</NazwaBanku>\n");
+            }
+            sb.append("      </RachunekBankowy>\n");
+        }
+        sb.append("    </Platnosc>\n");
     }
 
     // =========================================================================
@@ -297,9 +335,11 @@ public class Fa3XmlBuilder {
         sb.append("      <P_18A>").append(invoice.isMechanizmPodzielonejPlatnosci() ? "1" : "2").append("</P_18A>\n");
 
         if (hasZwolnienie) {
-            sb.append("      <Zwolnienie><P_19>")
+            // P_19 jest typu TWybor1 — musi zawierać wyłącznie "1" (flaga wyboru).
+            // Podstawa prawna zwolnienia (tekst) idzie do P_19A.
+            sb.append("      <Zwolnienie><P_19>1</P_19><P_19A>")
               .append(esc(invoice.getZwolnieniePodatkowe()))
-              .append("</P_19></Zwolnienie>\n");
+              .append("</P_19A></Zwolnienie>\n");
         } else {
             sb.append("      <Zwolnienie><P_19N>1</P_19N></Zwolnienie>\n");
         }

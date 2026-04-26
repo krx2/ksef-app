@@ -26,9 +26,9 @@ import pl.ksef.service.queue.InvoiceSendRequestedEvent;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
-import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 
@@ -47,18 +47,7 @@ public class InvoiceService {
     private final ApplicationEventPublisher eventPublisher;
     private final Fa3Validator fa3Validator;
     private final UserRepository userRepository;
-
-    /**
-     * Stosuje prefiks roku i miesiąca do numeru faktury gdy tryb = YEAR_MONTH.
-     * Przykład: applyPrefix("1", YEAR_MONTH, 2026-04-15) → "2026/04/1"
-     */
-    private String applyPrefix(String rawNumber, AppUser.InvoiceNumberPrefixMode mode, LocalDate issueDate) {
-        if (mode == AppUser.InvoiceNumberPrefixMode.YEAR_MONTH && issueDate != null) {
-            String prefix = issueDate.format(DateTimeFormatter.ofPattern("yyyy/MM"));
-            return prefix + "/" + rawNumber;
-        }
-        return rawNumber;
-    }
+    private final InvoiceNumberGenerator invoiceNumberGenerator;
 
     /**
      * Shortcut dla faktury wystawionej przez formularz (source=FORM).
@@ -226,7 +215,7 @@ public class InvoiceService {
     private Invoice buildInvoice(UUID userId, InvoiceDto.CreateRequest req, InvoiceSource source) {
         AppUser user = userRepository.findById(userId)
                 .orElseThrow(() -> new ResourceNotFoundException("User not found: " + userId));
-        String invoiceNumber = applyPrefix(req.getInvoiceNumber(),
+        String invoiceNumber = invoiceNumberGenerator.applyPrefix(req.getInvoiceNumber(),
                 user.getInvoicePrefixMode(), req.getIssueDate());
 
         Invoice invoice = Invoice.builder()
@@ -240,13 +229,13 @@ public class InvoiceService {
                 .sellerName(req.getSellerName())
                 .sellerNip(req.getSellerNip())
                 .sellerAddress(req.getSellerAddress())
-                .sellerCountryCode(req.getSellerCountryCode() != null ? req.getSellerCountryCode() : "PL")
+                .sellerCountryCode(Optional.ofNullable(req.getSellerCountryCode()).orElse("PL"))
                 .buyerName(req.getBuyerName())
                 .buyerNip(req.getBuyerNip())
                 .buyerAddress(req.getBuyerAddress())
-                .buyerCountryCode(req.getBuyerCountryCode() != null ? req.getBuyerCountryCode() : "PL")
-                .currency(req.getCurrency() != null ? req.getCurrency() : "PLN")
-                .rodzajFaktury(req.getRodzajFaktury() != null ? req.getRodzajFaktury() : "VAT")
+                .buyerCountryCode(Optional.ofNullable(req.getBuyerCountryCode()).orElse("PL"))
+                .currency(Optional.ofNullable(req.getCurrency()).orElse("PLN"))
+                .rodzajFaktury(Optional.ofNullable(req.getRodzajFaktury()).orElse("VAT"))
                 .metodaKasowa(req.isMetodaKasowa())
                 .samofakturowanie(req.isSamofakturowanie())
                 .odwrotneObciazenie(req.isOdwrotneObciazenie())
@@ -254,6 +243,9 @@ public class InvoiceService {
                 .zwolnieniePodatkowe(req.getZwolnieniePodatkowe())
                 .jst(req.isJst())
                 .gv(req.isGv())
+                .paymentDueDate(req.getPaymentDueDate())
+                .bankAccountNumber(req.getBankAccountNumber())
+                .bankName(req.getBankName())
                 .build();
 
         int pos = 1;
@@ -332,6 +324,9 @@ public class InvoiceService {
         r.setZwolnieniePodatkowe(i.getZwolnieniePodatkowe());
         r.setJst(i.isJst());
         r.setGv(i.isGv());
+        r.setPaymentDueDate(i.getPaymentDueDate());
+        r.setBankAccountNumber(i.getBankAccountNumber());
+        r.setBankName(i.getBankName());
         r.setErrorMessage(i.getErrorMessage());
         r.setSource(i.getSource());
         r.setCreatedAt(i.getCreatedAt());

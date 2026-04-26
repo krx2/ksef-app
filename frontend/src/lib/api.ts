@@ -47,10 +47,19 @@ function withFileUpload(userId: string, signal?: AbortSignal) {
   };
 }
 
+const XLSX_MAX_SIZE_MB = 10;
+const XLSX_MAX_SIZE_BYTES = XLSX_MAX_SIZE_MB * 1024 * 1024;
+
 function validateXlsxFile(file: File) {
   if (!file.name.match(/\.(xlsx|xls)$/i)) {
     throw Object.assign(
       new Error('Plik musi być w formacie .xlsx lub .xls'),
+      { isValidation: true }
+    );
+  }
+  if (file.size > XLSX_MAX_SIZE_BYTES) {
+    throw Object.assign(
+      new Error(`Plik jest zbyt duży (${(file.size / 1024 / 1024).toFixed(1)} MB). Maksymalny rozmiar to ${XLSX_MAX_SIZE_MB} MB.`),
       { isValidation: true }
     );
   }
@@ -155,7 +164,7 @@ export const usersApi = {
     api.get<AppUser>(`/users/${id}`).then(r => r.data),
 
   loginByNip: (nip: string) =>
-    api.get<AppUser>(`/users/by-nip/${nip}`).then(r => r.data),
+    api.get<{ id: string; hasPin: boolean }>(`/users/by-nip/${nip}`).then(r => r.data),
 
   login: (nip: string, pin?: string) =>
     api.post<AppUser>('/users/login', { nip, pin }).then(r => r.data),
@@ -186,7 +195,7 @@ export const notificationEmailsApi = {
       .then(r => r.data),
 
   /** Dodaje nowy adres email. Zwraca 400 gdy adres już istnieje. */
-  add: (userId: string, email: string, label?: string) =>
+  create: (userId: string, email: string, label?: string) =>
     api.post<import('@/types').NotificationEmail>(
       '/notification-emails',
       { email, label },
@@ -202,7 +211,7 @@ export const notificationEmailsApi = {
     ).then(r => r.data),
 
   /** Usuwa adres z listy powiadomień. */
-  remove: (userId: string, id: string) =>
+  delete: (userId: string, id: string) =>
     api.delete(`/notification-emails/${id}`, withUser(userId)),
 };
 

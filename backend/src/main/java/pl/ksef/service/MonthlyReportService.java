@@ -10,6 +10,8 @@ import pl.ksef.entity.Invoice;
 import pl.ksef.repository.InvoiceRepository;
 import pl.ksef.exception.ResourceNotFoundException;
 
+import org.apache.commons.lang3.StringUtils;
+
 import java.awt.Color;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
@@ -160,7 +162,7 @@ public class MonthlyReportService {
             Font cellFont   = font(unicodeFont,     FontFactory.HELVETICA,        8, Font.NORMAL, Color.BLACK);
 
             // Nagłówek dokumentu
-            String monthLabel = capitalize(month.format(MONTH_LABEL_FORMAT));
+            String monthLabel = StringUtils.capitalize(month.format(MONTH_LABEL_FORMAT));
             doc.add(new Paragraph("Raport faktur \u2014 " + monthLabel, titleFont));
             doc.add(new Paragraph("Wygenerowano: " + LocalDate.now().format(DATE_FORMAT)
                     + "  \u00b7  Liczba faktur: " + invoices.size(), metaFont));
@@ -244,8 +246,4 @@ public class MonthlyReportService {
         };
     }
 
-    private String capitalize(String s) {
-        if (s == null || s.isEmpty()) return s;
-        return Character.toUpperCase(s.charAt(0)) + s.substring(1);
-    }
 }

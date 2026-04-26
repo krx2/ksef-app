@@ -6,7 +6,8 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
-import pl.ksef.entity.Invoice;
+import pl.ksef.dto.InvoiceDto;
+import pl.ksef.service.InvoiceService;
 import pl.ksef.service.MonthlyReportService;
 
 import java.time.YearMonth;
@@ -26,6 +27,7 @@ import java.util.UUID;
 public class ReportController {
 
     private final MonthlyReportService monthlyReportService;
+    private final InvoiceService invoiceService;
 
     /**
      * Pobiera listę faktur z danego miesiąca do wyświetlenia w UI (checkboxy).
@@ -47,7 +49,10 @@ public class ReportController {
                     .body(Map.of("error", "Nieprawidłowy format miesiąca. Oczekiwany: YYYY-MM (np. 2026-04)"));
         }
 
-        List<Invoice> invoices = monthlyReportService.listForMonth(userId, yearMonth);
+        List<InvoiceDto.Response> invoices = monthlyReportService.listForMonth(userId, yearMonth)
+                .stream()
+                .map(invoiceService::toResponse)
+                .toList();
         return ResponseEntity.ok(invoices);
     }
 

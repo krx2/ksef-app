@@ -36,6 +36,8 @@ services:
     build:
       context: ./backend
     container_name: ksef-backend
+    ports:
+      - "8080:8080"
     environment:
       DB_HOST: postgres
       DB_PORT: 5432
@@ -67,7 +69,7 @@ services:
     build:
       context: ./frontend
       args:
-        NEXT_PUBLIC_BACKEND_URL: http://backend:8080
+        NEXT_PUBLIC_BACKEND_URL: ${NEXT_PUBLIC_BACKEND_URL:-http://localhost:8080}
     container_name: ksef-frontend
     ports:
       - "${FRONTEND_PORT:-3000}:3000"

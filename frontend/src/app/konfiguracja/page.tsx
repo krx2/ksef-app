@@ -5,11 +5,12 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
 import { Plus, Pencil, Trash2, Key, Hash, Mail, Download, Lock } from 'lucide-react';
 import { useUser } from '@/lib/user-context';
-import { xlsxConfigsApi, usersApi, userPrefixApi, notificationEmailsApi, invoicesApi } from '@/lib/api';
+import { xlsxConfigsApi, usersApi, invoicesApi } from '@/lib/api';
 import { KSEF_HISTORY_START } from '@/lib/api';
+import { useNotificationEmails } from './useNotificationEmails';
+import { usePrefixMode } from './usePrefixMode';
 import XlsxConfigModal from '@/components/forms/XlsxConfigModal';
 import type { XlsxConfig } from '@/types';
-import type { NotificationEmail } from '@/types';
 
 export default function KonfiguracjaPage() {
   const { userId, user, setUser, isLoaded } = useUser();
@@ -28,34 +29,17 @@ export default function KonfiguracjaPage() {
   const [pinError, setPinError] = useState('');
   const [pinSuccess, setPinSuccess] = useState(false);
 
-  const { data: notificationEmails, refetch: refetchEmails } = useQuery<NotificationEmail[]>({
-    queryKey: ['notification-emails', userId],
-    queryFn:  () => notificationEmailsApi.list(userId),
-    enabled:  !!userId,
-  });
-  const [newEmail, setNewEmail]       = useState('');
-  const [newLabel, setNewLabel]       = useState('');
-  const [addingEmail, setAddingEmail] = useState(false);
-  const [emailError, setEmailError]   = useState('');
+  const {
+    emails: notificationEmails,
+    newEmail, setNewEmail,
+    newLabel, setNewLabel,
+    adding: addingEmail,
+    error: emailError,
+    add: handleAddEmail,
+    remove: handleRemoveEmail,
+  } = useNotificationEmails(userId);
 
-  const handleAddEmail = async () => {
-    if (!newEmail.trim()) return;
-    setAddingEmail(true); setEmailError('');
-    try {
-      await notificationEmailsApi.add(userId, newEmail.trim(), newLabel.trim() || undefined);
-      setNewEmail(''); setNewLabel('');
-      refetchEmails();
-    } catch (err: unknown) {
-      const axiosErr = err as { response?: { data?: { error?: string } } };
-      setEmailError(axiosErr?.response?.data?.error ?? 'Błąd dodawania adresu');
-    } finally { setAddingEmail(false); }
-  };
-
-  const handleRemoveEmail = async (id: string) => {
-    if (!confirm('Na pewno usunąć ten adres z listy powiadomień?')) return;
-    await notificationEmailsApi.remove(userId, id);
-    refetchEmails();
-  };
+  const { prefixMode, updatePrefixMode } = usePrefixMode();
 
   const { data: configs, isLoading } = useQuery({
     queryKey: ['xlsx-configs', userId],
@@ -73,12 +57,6 @@ export default function KonfiguracjaPage() {
   }, [isLoaded, user, router]);
 
   if (!isLoaded || !user) return null;
-
-  const handleUpdatePrefixMode = async (mode: 'NONE' | 'YEAR_MONTH') => {
-    if (!userId || !user) return;
-    await userPrefixApi.updatePrefixMode(userId, mode);
-    setUser({ ...user, invoicePrefixMode: mode });
-  };
 
   const handleFetchHistory = async () => {
     if (!userId || !user?.hasKsefToken) return;
@@ -328,8 +306,8 @@ export default function KonfiguracjaPage() {
         </p>
         <select
           className="input max-w-xs"
-          value={user?.invoicePrefixMode ?? 'NONE'}
-          onChange={e => handleUpdatePrefixMode(e.target.value as 'NONE' | 'YEAR_MONTH')}
+          value={prefixMode}
+          onChange={e => updatePrefixMode(e.target.value as 'NONE' | 'YEAR_MONTH')}
         >
           <option value="NONE">Bez prefiksu (np. 1, 2, 3)</option>
           <option value="YEAR_MONTH">Rok/Miesiąc (np. 2026/04/1)</option>

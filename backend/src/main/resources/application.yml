@@ -61,10 +61,17 @@ ksef:
       requests-per-second: 100
       requests-per-minute: 300
       requests-per-hour: 1200
+  polling:
+    max-invoice-poll-attempts: ${KSEF_POLL_MAX_ATTEMPTS:15}
+    invoice-poll-interval-ms: ${KSEF_POLL_INTERVAL_MS:2000}
+    fetch-page-size: ${KSEF_FETCH_PAGE_SIZE:100}
+    fetch-window-hours: ${KSEF_FETCH_WINDOW_HOURS:3}
   testdata-endpoints-available: true
 
 cors:
-  allowed-origin-patterns: ${CORS_ALLOWED_ORIGIN_PATTERNS:*}
+  # Wymagana jawna konfiguracja — brak domyślnego wildcard '*' w produkcji.
+  # Ustaw CORS_ALLOWED_ORIGIN_PATTERNS np. https://app.ksef-faktury.pl lub http://localhost:3000
+  allowed-origin-patterns: ${CORS_ALLOWED_ORIGIN_PATTERNS}
 
 app:
   mail:

@@ -86,8 +86,8 @@ public class Invoice {
     @Column(nullable = false)
     private String currency = "PLN";
 
-    @Column(name = "fa2_xml", columnDefinition = "TEXT")
-    private String fa2Xml;
+    @Column(name = "fa3_xml", columnDefinition = "TEXT")
+    private String fa3Xml;
 
     @Column(name = "error_message")
     private String errorMessage;
@@ -130,6 +130,18 @@ public class Invoice {
     /** Podmiot2.GV — czy faktura dotyczy członka grupy VAT. */
     @Column(name = "gv", nullable = false)
     private boolean gv = false;
+
+    /** Platnosc/TerminPlatnosci/Termin — termin zapłaty (FA(3)). */
+    @Column(name = "payment_due_date")
+    private LocalDate paymentDueDate;
+
+    /** Platnosc/RachunekBankowy/NrRB — numer rachunku bankowego sprzedawcy (FA(3)). */
+    @Column(name = "bank_account_number")
+    private String bankAccountNumber;
+
+    /** Platnosc/RachunekBankowy/NazwaBanku — nazwa banku (FA(3)). */
+    @Column(name = "bank_name")
+    private String bankName;
 
     @OneToMany(mappedBy = "invoice", cascade = CascadeType.ALL, orphanRemoval = true)
     @OrderBy("position ASC")

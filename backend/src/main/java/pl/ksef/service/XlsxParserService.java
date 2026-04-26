@@ -315,7 +315,12 @@ public class XlsxParserService {
 
     private BigDecimal parseBigDecimal(String s) {
         if (s == null || s.isBlank()) return BigDecimal.ZERO;
-        try { return new BigDecimal(s.replace(",", ".")); } catch (Exception e) { return BigDecimal.ZERO; }
+        try {
+            return new BigDecimal(s.replace(",", "."));
+        } catch (NumberFormatException e) {
+            throw new IllegalArgumentException(
+                    "Nieprawidłowa wartość liczbowa w pliku XLSX: \"" + s + "\" — oczekiwano liczby (np. 123.45 lub 123,45)");
+        }
     }
 
     /**

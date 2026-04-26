@@ -4,25 +4,12 @@ import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { FileDown } from 'lucide-react';
 import { useUser } from '@/lib/user-context';
-import { invoicesApi, reportsApi } from '@/lib/api';
+import { reportsApi } from '@/lib/api';
 import { formatPLN, formatDate } from '@/lib/utils';
+import { MIN_MONTH, getCurrentMonth } from '@/lib/dateUtils';
 import { StatusBadge, DirectionBadge } from '@/components/ui/StatusBadge';
 import { RODZAJ_FAKTURY_LABELS } from '@/types';
 import type { Invoice } from '@/types';
-
-const MIN_MONTH = '2026-02';
-
-function getCurrentMonth(): string {
-  return new Date().toISOString().slice(0, 7);
-}
-
-function monthToDateRange(month: string): { from: string; to: string } {
-  const [year, mon] = month.split('-').map(Number);
-  const from = `${month}-01`;
-  const lastDay = new Date(year, mon, 0).getDate();
-  const to = `${month}-${String(lastDay).padStart(2, '0')}`;
-  return { from, to };
-}
 
 export default function RaportyPage() {
   const { userId, user, isLoaded } = useUser();
@@ -44,11 +31,9 @@ export default function RaportyPage() {
     if (!userId || !month) return;
     setIsLoadingInvoices(true);
     setError('');
-    const { from, to } = monthToDateRange(month);
-    invoicesApi.list(userId, { issueDateFrom: from, issueDateTo: to, size: 500 })
-      .then(data => {
-        const list: Invoice[] = Array.isArray(data.content) ? data.content : [];
-        list.sort((a, b) => (a.issueDate ?? '').localeCompare(b.issueDate ?? ''));
+    reportsApi.listForMonth(userId, month)
+      .then(list => {
+        // Endpoint /api/reports/invoices zwraca listę posortowaną ASC po issueDate
         setInvoices(list);
         setSelectedIds(new Set(list.map(inv => inv.id)));
       })

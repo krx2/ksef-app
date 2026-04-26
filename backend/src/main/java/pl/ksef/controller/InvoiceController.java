@@ -1,11 +1,14 @@
 package pl.ksef.controller;
 
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ContentDisposition;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 import pl.ksef.dto.InvoiceDto;
@@ -32,6 +35,7 @@ import java.util.UUID;
 @RestController
 @RequestMapping("/api/invoices")
 @RequiredArgsConstructor
+@Validated
 public class InvoiceController {
 
     private final InvoiceService invoiceService;
@@ -61,8 +65,12 @@ public class InvoiceController {
             @RequestParam(required = false) String rodzajFaktury,
             @RequestParam(required = false) LocalDate issueDateFrom,
             @RequestParam(required = false) LocalDate issueDateTo,
-            @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "20") int size) {
+            @RequestParam(defaultValue = "0") @Min(0) int page,
+            @RequestParam(defaultValue = "20") @Min(1) @Max(200) int size) {
+        if (issueDateFrom != null && issueDateTo != null && issueDateFrom.isAfter(issueDateTo)) {
+            throw new IllegalArgumentException(
+                    "issueDateFrom (" + issueDateFrom + ") nie może być późniejsze niż issueDateTo (" + issueDateTo + ")");
+        }
         return ResponseEntity.ok(invoiceService.listByUser(
                 userId, direction, search, status, rodzajFaktury, issueDateFrom, issueDateTo, page, size));
     }
@@ -135,7 +143,9 @@ public class InvoiceController {
         String dateTo   = LocalDateTime.now().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME) + "Z";
         String dateFrom = LocalDateTime.now().minusHours(24).format(DateTimeFormatter.ISO_LOCAL_DATE_TIME) + "Z";
 
-        queuePublisher.publishFetchInvoices(userId, dateFrom, dateTo);
+        // Pobieramy oba kierunki: odebrane (Subject2) i wystawione (Subject1)
+        queuePublisher.publishFetchInvoices(userId, dateFrom, dateTo, "Subject2", false);
+        queuePublisher.publishFetchInvoices(userId, dateFrom, dateTo, "Subject1", false);
 
         return ResponseEntity.accepted()
                 .body(Map.of("message", "Pobieranie faktur z KSeF zostało zlecone"));

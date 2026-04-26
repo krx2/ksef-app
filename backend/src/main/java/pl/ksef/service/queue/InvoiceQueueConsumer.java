@@ -6,6 +6,7 @@ import org.springframework.amqp.rabbit.annotation.RabbitListener;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
+import pl.ksef.config.KsefPollingProperties;
 import pl.ksef.config.RabbitMQConfig;
 import pl.ksef.dto.KsefDto;
 import pl.ksef.entity.AppUser;
@@ -23,6 +24,7 @@ import pl.ksef.service.ksef.KsefTokenManager;
 
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
+import java.util.List;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 
@@ -31,12 +33,7 @@ import java.time.format.DateTimeFormatter;
 @RequiredArgsConstructor
 public class InvoiceQueueConsumer {
 
-    private static final int MAX_INVOICE_POLL_ATTEMPTS = 15;
-    private static final int FETCH_PAGE_SIZE = 100;
-    private static final long INVOICE_POLL_INTERVAL_MS = 2_000L;
-    /** Zakres pobierania faktur — 3h zapewnia overlap przy cyklu co 2h */
-    private static final int FETCH_WINDOW_HOURS = 3;
-
+    private final KsefPollingProperties pollingProps;
     private final InvoiceRepository invoiceRepository;
     private final UserRepository userRepository;
     private final KsefApiClient ksefApiClient;
@@ -90,13 +87,13 @@ public class InvoiceQueueConsumer {
             accessToken = ksefTokenManager.getValidAccessToken(user);
 
             // 2. Zbuduj XML FA(3) jeśli jeszcze nie ma w bazie
-            if (invoice.getFa2Xml() == null) {
+            if (invoice.getFa3Xml() == null) {
                 String xml = fa3XmlBuilder.build(invoice);
-                invoice.setFa2Xml(xml);
+                invoice.setFa3Xml(xml);
             }
 
             // 3. Zaszyfruj fakturę (AES-256-CBC + RSA-OAEP klucz AES)
-            byte[] xmlBytes = invoice.getFa2Xml().getBytes(StandardCharsets.UTF_8);
+            byte[] xmlBytes = invoice.getFa3Xml().getBytes(StandardCharsets.UTF_8);
             EncryptedInvoiceData encrypted = encryptionService.encryptInvoice(xmlBytes);
 
             // 4. Otwórz sesję interaktywną
@@ -127,7 +124,10 @@ public class InvoiceQueueConsumer {
                     statusResp != null ? statusResp.getInvoiceHash() : null);
 
             if (emailService != null) {
-                emailService.sendInvoiceSentConfirmation(user, invoice);
+                List<String> failed = emailService.sendInvoiceSentConfirmation(user, invoice);
+                if (!failed.isEmpty()) {
+                    log.warn("Nie udało się wysłać potwierdzenia do {} adresów: {}", failed.size(), failed);
+                }
             }
 
         } catch (KsefException e) {
@@ -189,7 +189,7 @@ public class InvoiceQueueConsumer {
             boolean hasMore;
             do {
                 KsefDto.QueryMetadataResponse result = ksefApiClient.queryInvoices(
-                        accessToken, request, pageOffset, FETCH_PAGE_SIZE, "Asc");
+                        accessToken, request, pageOffset, pollingProps.getFetchPageSize(), "Asc");
 
                 if (result.getInvoices() == null || result.getInvoices().isEmpty()) {
                     log.info("Brak faktur do pobrania dla użytkownika {} (offset={})",
@@ -220,7 +220,7 @@ public class InvoiceQueueConsumer {
                         // 4. Uzupełnij numer KSeF, hash i zapisz oryginalny XML
                         invoice.setKsefNumber(meta.getKsefNumber());
                         invoice.setInvoiceHash(meta.getInvoiceHash());
-                        invoice.setFa2Xml(xml);
+                        invoice.setFa3Xml(xml);
 
                         // 5. Zapisz do bazy (status=RECEIVED_FROM_KSEF, source=KSEF ustawione przez parser)
                         invoiceRepository.save(invoice);
@@ -229,7 +229,10 @@ public class InvoiceQueueConsumer {
 
                         // 6. Wyślij powiadomienie email (jeśli mail włączony i nie jest to import historyczny)
                         if (emailService != null && !message.isSkipEmail()) {
-                            emailService.sendNewInvoiceNotification(user, invoice);
+                            List<String> failed = emailService.sendNewInvoiceNotification(user, invoice);
+                            if (!failed.isEmpty()) {
+                                log.warn("Nie udało się wysłać powiadomienia do {} adresów: {}", failed.size(), failed);
+                            }
                         }
                     } catch (Exception e) {
                         log.error("Błąd przetwarzania faktury ksefNumber={}: {}",
@@ -261,15 +264,15 @@ public class InvoiceQueueConsumer {
      */
     private KsefDto.SessionInvoiceStatusResponse pollForKsefStatus(
             String accessToken, String sessionRef, String invoiceRef) {
-        for (int attempt = 1; attempt <= MAX_INVOICE_POLL_ATTEMPTS; attempt++) {
+        for (int attempt = 1; attempt <= pollingProps.getMaxInvoicePollAttempts(); attempt++) {
             try {
-                Thread.sleep(INVOICE_POLL_INTERVAL_MS);
+                Thread.sleep(pollingProps.getInvoicePollIntervalMs());
 
                 KsefDto.SessionInvoiceStatusResponse status =
                         ksefApiClient.getInvoiceStatus(accessToken, sessionRef, invoiceRef);
 
                 int code = status.getStatus().getCode();
-                log.debug("Invoice status poll {}/{}: code={}", attempt, MAX_INVOICE_POLL_ATTEMPTS, code);
+                log.debug("Invoice status poll {}/{}: code={}", attempt, pollingProps.getMaxInvoicePollAttempts(), code);
 
                 if (code == 200) {
                     return status;
@@ -302,7 +305,7 @@ public class InvoiceQueueConsumer {
         }
 
         // Timeout — numer KSeF może dotrzeć asynchronicznie
-        log.warn("Timeout pollingu numeru KSeF dla invoiceRef={} po {} próbach", invoiceRef, MAX_INVOICE_POLL_ATTEMPTS);
+        log.warn("Timeout pollingu numeru KSeF dla invoiceRef={} po {} próbach", invoiceRef, pollingProps.getMaxInvoicePollAttempts());
         return null;
     }
 
@@ -315,7 +318,7 @@ public class InvoiceQueueConsumer {
     @Scheduled(cron = "0 0 */2 * * *")
     public void schedulePeriodicFetch() {
         LocalDateTime to   = LocalDateTime.now();
-        LocalDateTime from = to.minusHours(FETCH_WINDOW_HOURS);
+        LocalDateTime from = to.minusHours(pollingProps.getFetchWindowHours());
 
         String dateFrom = from.format(DateTimeFormatter.ISO_LOCAL_DATE_TIME) + "Z";
         String dateTo   = to.format(DateTimeFormatter.ISO_LOCAL_DATE_TIME) + "Z";
@@ -323,7 +326,8 @@ public class InvoiceQueueConsumer {
         userRepository.findAll().stream()
                 .filter(u -> u.getKsefToken() != null && !u.getKsefToken().isBlank())
                 .forEach(u -> {
-                    queuePublisher.publishFetchInvoices(u.getId(), dateFrom, dateTo);
+                    queuePublisher.publishFetchInvoices(u.getId(), dateFrom, dateTo, "Subject2", false);
+                    queuePublisher.publishFetchInvoices(u.getId(), dateFrom, dateTo, "Subject1", false);
                     log.info("Periodic fetch queued for userId={} window=[{} — {}]", u.getId(), dateFrom, dateTo);
                 });
     }

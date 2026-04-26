@@ -92,6 +92,14 @@ public class Fa3XmlParser {
             invoice.setGrossAmount(grossStr.isBlank() ? BigDecimal.ZERO : new BigDecimal(grossStr));
             invoice.setRodzajFaktury(textOr(xpath, doc, "/fa:Faktura/fa:Fa/fa:RodzajFaktury", "VAT"));
 
+            // Platnosc — termin zapłaty i rachunek bankowy (opcjonalne)
+            String termin = text(xpath, doc, "/fa:Faktura/fa:Fa/fa:Platnosc/fa:TerminPlatnosci/fa:Termin");
+            if (!termin.isBlank()) invoice.setPaymentDueDate(LocalDate.parse(termin));
+            String nrRb = text(xpath, doc, "/fa:Faktura/fa:Fa/fa:Platnosc/fa:RachunekBankowy/fa:NrRB");
+            if (!nrRb.isBlank()) invoice.setBankAccountNumber(nrRb);
+            String nazwaBank = text(xpath, doc, "/fa:Faktura/fa:Fa/fa:Platnosc/fa:RachunekBankowy/fa:NazwaBanku");
+            if (!nazwaBank.isBlank()) invoice.setBankName(nazwaBank);
+
             // Adnotacje
             invoice.setMetodaKasowa("1".equals(text(xpath, doc, "/fa:Faktura/fa:Fa/fa:Adnotacje/fa:P_16")));
             invoice.setSamofakturowanie("1".equals(text(xpath, doc, "/fa:Faktura/fa:Fa/fa:Adnotacje/fa:P_17")));

@@ -81,6 +81,12 @@ export interface Invoice {
   jst: boolean;
   /** Podmiot2.GV — faktura dotyczy członka grupy VAT */
   gv: boolean;
+  /** Platnosc/TerminPlatnosci/Termin — termin zapłaty */
+  paymentDueDate?: string;
+  /** Platnosc/RachunekBankowy/NrRB — numer rachunku bankowego sprzedawcy */
+  bankAccountNumber?: string;
+  /** Platnosc/RachunekBankowy/NazwaBanku — nazwa banku */
+  bankName?: string;
   errorMessage?: string;
   source: InvoiceSource;
   items: InvoiceItem[];
@@ -142,6 +148,9 @@ export const INVOICE_FIELDS: { key: string; label: string; required?: boolean }[
   { key: 'invoiceNumber',  label: 'Numer faktury',       required: true },
   { key: 'issueDate',      label: 'Data wystawienia',    required: true },
   { key: 'saleDate',       label: 'Data sprzedaży' },
+  { key: 'paymentDueDate',    label: 'Termin zapłaty' },
+  { key: 'bankAccountNumber', label: 'Numer rachunku bankowego' },
+  { key: 'bankName',          label: 'Nazwa banku' },
   { key: 'rodzajFaktury',  label: 'Rodzaj faktury' },
   { key: 'sellerName',     label: 'Sprzedawca — nazwa',  required: true },
   { key: 'sellerNip',      label: 'Sprzedawca — NIP',    required: true },
